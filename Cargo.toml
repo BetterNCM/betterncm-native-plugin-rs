@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "betterncm-macro",
+    "betterncm-plugin-example",
+    "betterncm-plugin-api",
+    "cef-sys",
+    "cef",
+]

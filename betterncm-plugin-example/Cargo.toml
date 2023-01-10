@@ -1,0 +1,15 @@
+[package]
+name = "betterncm-plugin-example"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+betterncm-macro = { path = "../betterncm-macro" }
+betterncm-plugin-api = { path = "../betterncm-plugin-api" }
+cef = { path = "../cef" }
+cef-sys = { path = "../cef-sys" }
