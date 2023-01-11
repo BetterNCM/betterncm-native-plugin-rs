@@ -4,4 +4,7 @@
 
 type std_string = cxx::CxxString;
 
+#[link(name = "libcef", kind = "static")]
+extern "C" {}
+
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));

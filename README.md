@@ -39,7 +39,3 @@ extern "cdecl" fn betterncm_plugin_main(ctx: &mut PluginContext) -> ::core::ffi:
 }
 
 ```
-
-## CEF 的文档生成
-
-由于原版的头文件的文档注释格式不符合要求，`bindgen` 无法正确生成文档，只需要把所有使用两个斜杠 `//` 的注释替换成三个斜杠的形式 `///` 即可正确生成文档。

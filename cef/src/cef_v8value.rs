@@ -1,11 +1,19 @@
-use crate::CefString;
+use std::ops::Deref;
+
+use crate::{CefBaseRefCounted, CefString, CefV8Function};
 
 #[derive(Debug)]
-pub struct CefV8Value(*mut cef_sys::cef_v8value_t);
+pub struct CefV8Value(*mut cef_sys::cef_v8value_t, CefBaseRefCounted);
 
 impl CefV8Value {
     pub unsafe fn from_raw(raw: *mut ::core::ffi::c_void) -> Self {
-        Self(raw as _)
+        Self(
+            raw as _,
+            CefBaseRefCounted::from_raw(::core::mem::transmute(raw)),
+        )
+    }
+    pub unsafe fn as_raw(&self) -> *mut cef_sys::cef_v8value_t {
+        self.0
     }
     pub fn is_valid(&self) -> bool {
         unsafe { ((*self.0).is_valid.unwrap())(self.0) != 0 }
@@ -95,12 +103,15 @@ impl CefV8Value {
     pub fn has_value_byindex(&self, index: ::core::ffi::c_int) -> bool {
         unsafe { ((*self.0).has_value_byindex.unwrap())(self.0, index) != 0 }
     }
-    // pub fn delete_value_bykey(&self) -> bool {
-    //     unsafe { ((*self.0).delete_value_bykey.unwrap())(self.0) }
-    // }
-    // pub fn delete_value_byindex(&self) -> bool {
-    //     unsafe { ((*self.0).delete_value_byindex.unwrap())(self.0) }
-    // }
+    pub fn delete_value_bykey(&self, key: &str) -> bool {
+        unsafe {
+            ((*self.0).delete_value_bykey.unwrap())(self.0, &CefString::from(key) as *const _ as _)
+                != 0
+        }
+    }
+    pub fn delete_value_byindex(&self, index: ::core::ffi::c_int) -> bool {
+        unsafe { ((*self.0).delete_value_byindex.unwrap())(self.0, index) != 0 }
+    }
     // pub fn get_value_bykey(&self) -> bool {
     //     unsafe { ((*self.0).get_value_bykey.unwrap())(self.0) }
     // }
@@ -119,10 +130,10 @@ impl CefV8Value {
     // pub fn get_keys(&self) -> bool {
     //     unsafe { ((*self.0).get_keys.unwrap())(self.0) }
     // }
-    // pub fn set_user_data(&self) -> bool {
-    //     unsafe { ((*self.0).set_user_data.unwrap())(self.0) }
+    // pub unsafe fn set_user_data(&self, user_data: *mut ::core::ffi::c_void) -> bool {
+    //     unsafe { ((*self.0).set_user_data.unwrap())(self.0, user_data) }
     // }
-    // pub fn get_user_data(&self) -> bool {
+    // pub unsafe fn get_user_data(&self) -> bool {
     //     unsafe { ((*self.0).get_user_data.unwrap())(self.0) }
     // }
     // pub fn get_externally_allocated_memory(&self) -> bool {
@@ -131,9 +142,9 @@ impl CefV8Value {
     // pub fn adjust_externally_allocated_memory(&self) -> bool {
     //     unsafe { ((*self.0).adjust_externally_allocated_memory.unwrap())(self.0) }
     // }
-    // pub fn get_array_length(&self) -> bool {
-    //     unsafe { ((*self.0).get_array_length.unwrap())(self.0) }
-    // }
+    pub fn get_array_length(&self) -> usize {
+        unsafe { ((*self.0).get_array_length.unwrap())(self.0) as _ }
+    }
     // pub fn get_array_buffer_release_callback(&self) -> bool {
     //     unsafe { ((*self.0).get_array_buffer_release_callback.unwrap())(self.0) }
     // }
@@ -160,6 +171,17 @@ impl CefV8Value {
     // pub fn execute_function_with_context(&self) -> bool {
     //     unsafe { ((*self.0).execute_function_with_context.unwrap())(self.0) }
     // }
+
+    pub fn into_v8function(self) -> CefV8Function {
+        unsafe { CefV8Function::from_raw(self.0, self.1) }
+    }
+}
+
+impl Deref for CefV8Value {
+    type Target = CefBaseRefCounted;
+    fn deref(&self) -> &Self::Target {
+        &self.1
+    }
 }
 
 impl From<CefV8Value> for u8 {

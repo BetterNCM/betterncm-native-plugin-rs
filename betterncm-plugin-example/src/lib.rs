@@ -6,6 +6,9 @@ use cef::CefV8Value;
 fn test_func(arg0: u8, arg1: CefV8Value) {
     println!("BetterNCM ❤ Rust!");
     println!("{} {:?}!", arg0, arg1);
+    unsafe {
+        dbg!(cef_sys::cef_v8context_get_current_context());
+    }
 }
 
 const FULL_V8VALUE_ARGS: [NativeAPIType; 100] = [NativeAPIType::V8Value; 100];

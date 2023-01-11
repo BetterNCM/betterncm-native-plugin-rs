@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 #[repr(C)]
 pub struct CefString(*mut cef_sys::cef_string_t);
 
@@ -10,6 +12,23 @@ impl CefString {
 impl Default for CefString {
     fn default() -> Self {
         unsafe { std::mem::zeroed() }
+    }
+}
+
+impl Display for CefString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = unsafe {
+            if let Some(data) = self.0.as_ref() {
+                if data.str_.is_null() {
+                    "".into()
+                } else {
+                    String::from_utf16_lossy(std::slice::from_raw_parts(data.str_, data.length))
+                }
+            } else {
+                "".into()
+            }
+        };
+        f.write_str(&str)
     }
 }
 
@@ -33,10 +52,11 @@ impl From<&str> for CefString {
     fn from(data: &str) -> Self {
         unsafe {
             let mut result: cef_sys::cef_string_t = ::core::mem::zeroed();
-            let data = Box::new(data.encode_utf16().chain(Some(0)).collect::<Vec<_>>());
 
-            result.length = data.len();
-            result.str_ = Box::leak(data).as_mut_ptr();
+            assert_ne!(
+                cef_sys::cef_string_utf8_to_utf16(data.as_ptr() as _, data.len(), &mut result),
+                0
+            );
 
             Self::from_raw(&mut result as *mut _ as _)
         }

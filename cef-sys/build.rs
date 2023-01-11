@@ -1,6 +1,14 @@
+use std::path::Path;
+
 use bindgen::*;
 
 fn main() {
+    let dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    let binding = Path::new(&dir).join("../BetterNCM/src/3rd/libcef");
+    let libcef_path = binding.to_string_lossy();
+    println!("{}", libcef_path);
+    println!("cargo:rustc-link-search={}", libcef_path);
+
     let files = std::fs::read_dir("../BetterNCM/src/3rd/libcef/include")
         .unwrap()
         .map(|x| x.unwrap())
@@ -40,6 +48,7 @@ fn main() {
         .generate_inline_functions(true)
         .generate_comments(true)
         .clang_arg("-I../BetterNCM/src/3rd/libcef")
+        .clang_arg("-fparse-all-comments")
         .allowlist_file("cef_.*")
         .allowlist_type("Cef.*")
         .allowlist_type("cef.*")
