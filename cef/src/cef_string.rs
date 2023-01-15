@@ -7,6 +7,24 @@ impl CefString {
     pub unsafe fn from_raw(raw: *mut ::core::ffi::c_void) -> Self {
         Self(raw as _)
     }
+    pub unsafe fn as_raw(&self) -> *mut cef_sys::cef_string_t {
+        self.0
+    }
+}
+
+impl Clone for CefString {
+    fn clone(&self) -> Self {
+        unsafe {
+            let s = *self.0;
+            let s = Box::new(::core::slice::from_raw_parts(s.str_, s.length).to_vec()).leak();
+            let result = Box::leak(Box::new(cef_sys::cef_string_t {
+                str_: s.as_mut_ptr(),
+                length: s.len(),
+                dtor: None,
+            }));
+            CefString(result as *mut _)
+        }
+    }
 }
 
 impl Default for CefString {
@@ -66,10 +84,13 @@ impl From<&str> for CefString {
 impl Drop for CefString {
     fn drop(&mut self) {
         unsafe {
-            if let Some(s) = self.0.as_ref() {
+            if let Some(s) = self.0.as_mut() {
                 if let Some(dtor) = s.dtor {
                     (dtor)(s.str_);
+                } else {
+                    drop(s.str_);
                 }
+                let _ = Box::from_raw(s);
             }
         }
     }

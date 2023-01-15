@@ -3,11 +3,23 @@ use betterncm_plugin_api::*;
 use cef::CefV8Value;
 
 #[betterncm_native_call]
-fn test_func(arg0: u8, arg1: CefV8Value) {
+fn test_func(arg0: usize, arg1: CefV8Value) {
     println!("BetterNCM ❤ Rust!");
     println!("{} {:?}!", arg0, arg1);
     unsafe {
         dbg!(cef_sys::cef_v8context_get_current_context());
+    }
+    if arg1.is_function() {
+        let arg1 = arg1.into_v8function();
+        std::thread::spawn(move || {
+            println!("Delay Executing function");
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            println!("Executing!");
+            arg1.execute_function(&[arg0.into()]);
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            println!("Executing!");
+            arg1.execute_function(&[(arg0 * 2).into()]);
+        });
     }
 }
 

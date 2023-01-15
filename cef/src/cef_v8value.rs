@@ -3,58 +3,133 @@ use std::ops::Deref;
 use crate::{CefBaseRefCounted, CefString, CefV8Function};
 
 #[derive(Debug)]
-pub struct CefV8Value(*mut cef_sys::cef_v8value_t, CefBaseRefCounted);
+pub struct CefV8Value(pub(crate) *mut cef_sys::cef_v8value_t);
+
+#[derive(Debug, Clone, Copy)]
+pub struct Undefined;
+
+#[derive(Debug, Clone, Copy)]
+pub struct Null;
+
+pub type CefV8HandlerCallback<E> =
+    dyn Fn(&str, CefV8Value, Vec<CefV8Value>) -> ::core::result::Result<CefV8Value, E>;
 
 impl CefV8Value {
     pub unsafe fn from_raw(raw: *mut ::core::ffi::c_void) -> Self {
-        Self(
-            raw as _,
-            CefBaseRefCounted::from_raw(::core::mem::transmute(raw)),
-        )
+        assert!(!raw.is_null(), "creating v8 value on null pointer");
+        assert_ne!(
+            cef_sys::cef_currently_on(cef_sys::cef_thread_id_t_TID_RENDERER),
+            0,
+            "creating v8 value on non-renderer thread"
+        );
+        Self(raw as _)
+    }
+    pub fn from_function<F: Fn()>(func: F) -> Self {
+        let func_name = std::any::type_name::<F>();
+        let func_name = CefString::from(func_name);
+        unsafe {
+            let handler = Box::leak(Box::new(cef_sys::cef_v8handler_t {
+                base: cef_sys::_cef_base_ref_counted_t {
+                    size: ::core::mem::size_of::<cef_sys::cef_v8handler_t>(),
+                    ..::core::mem::zeroed()
+                },
+                execute: None,
+            }));
+            todo!()
+            // Self::from_raw(cef_sys::cef_v8value_create_function(func_name))
+        }
+    }
+    pub fn create_undefined() -> Self {
+        unsafe { Self::from_raw(cef_sys::cef_v8value_create_undefined() as _) }
+    }
+    pub fn create_null() -> Self {
+        unsafe { Self::from_raw(cef_sys::cef_v8value_create_null() as _) }
     }
     pub unsafe fn as_raw(&self) -> *mut cef_sys::cef_v8value_t {
         self.0
     }
     pub fn is_valid(&self) -> bool {
+        if self.0.is_null() {
+            return false;
+        }
         unsafe { ((*self.0).is_valid.unwrap())(self.0) != 0 }
     }
     pub fn is_undefined(&self) -> bool {
+        if self.0.is_null() {
+            return true;
+        }
         unsafe { ((*self.0).is_undefined.unwrap())(self.0) != 0 }
     }
     pub fn is_null(&self) -> bool {
+        if self.0.is_null() {
+            return false;
+        }
         unsafe { ((*self.0).is_null.unwrap())(self.0) != 0 }
     }
     pub fn is_bool(&self) -> bool {
+        if self.0.is_null() {
+            return false;
+        }
         unsafe { ((*self.0).is_bool.unwrap())(self.0) != 0 }
     }
     pub fn is_int(&self) -> bool {
+        if self.0.is_null() {
+            return false;
+        }
         unsafe { ((*self.0).is_int.unwrap())(self.0) != 0 }
     }
     pub fn is_uint(&self) -> bool {
+        if self.0.is_null() {
+            return false;
+        }
         unsafe { ((*self.0).is_uint.unwrap())(self.0) != 0 }
     }
     pub fn is_double(&self) -> bool {
+        if self.0.is_null() {
+            return false;
+        }
         unsafe { ((*self.0).is_double.unwrap())(self.0) != 0 }
     }
     pub fn is_date(&self) -> bool {
+        if self.0.is_null() {
+            return false;
+        }
         unsafe { ((*self.0).is_date.unwrap())(self.0) != 0 }
     }
     pub fn is_string(&self) -> bool {
+        if self.0.is_null() {
+            return false;
+        }
         unsafe { ((*self.0).is_string.unwrap())(self.0) != 0 }
     }
     pub fn is_object(&self) -> bool {
+        if self.0.is_null() {
+            return false;
+        }
         unsafe { ((*self.0).is_object.unwrap())(self.0) != 0 }
     }
     pub fn is_array(&self) -> bool {
+        if self.0.is_null() {
+            return false;
+        }
         unsafe { ((*self.0).is_array.unwrap())(self.0) != 0 }
     }
     pub fn is_array_buffer(&self) -> bool {
+        if self.0.is_null() {
+            return false;
+        }
         unsafe { ((*self.0).is_array_buffer.unwrap())(self.0) != 0 }
     }
     pub fn is_function(&self) -> bool {
+        if self.0.is_null() {
+            return false;
+        }
         unsafe { ((*self.0).is_function.unwrap())(self.0) != 0 }
     }
     pub fn is_same(&self, other: &Self) -> bool {
+        if self.0.is_null() || other.0.is_null() {
+            return false;
+        }
         unsafe { ((*self.0).is_same.unwrap())(self.0, other.0) != 0 }
     }
     pub fn get_bool_value(&self) -> bool {
@@ -112,12 +187,17 @@ impl CefV8Value {
     pub fn delete_value_byindex(&self, index: ::core::ffi::c_int) -> bool {
         unsafe { ((*self.0).delete_value_byindex.unwrap())(self.0, index) != 0 }
     }
-    // pub fn get_value_bykey(&self) -> bool {
-    //     unsafe { ((*self.0).get_value_bykey.unwrap())(self.0) }
-    // }
-    // pub fn get_value_byindex(&self) -> bool {
-    //     unsafe { ((*self.0).get_value_byindex.unwrap())(self.0) }
-    // }
+    pub fn get_value_bykey(&self, key: &str) -> Self {
+        unsafe {
+            Self::from_raw(((*self.0).get_value_bykey.unwrap())(
+                self.0,
+                CefString::from(key).as_raw(),
+            ) as _)
+        }
+    }
+    pub fn get_value_byindex(&self, index: isize) -> Self {
+        unsafe { Self::from_raw(((*self.0).get_value_byindex.unwrap())(self.0, index as _) as _) }
+    }
     // pub fn set_value_bykey(&self) -> bool {
     //     unsafe { ((*self.0).set_value_bykey.unwrap())(self.0) }
     // }
@@ -160,6 +240,10 @@ impl CefV8Value {
     pub fn execute_function(&self, this_obj: CefV8Value, arguments: &[CefV8Value]) -> CefV8Value {
         let arguments = arguments.iter().map(|x| x.0).collect::<Vec<_>>();
         unsafe {
+            assert!(
+                cef_sys::cef_currently_on(cef_sys::cef_thread_id_t_TID_RENDERER) != 0,
+                "calling v8value function on non-renderer thread"
+            );
             CefV8Value::from_raw(((*self.0).execute_function.unwrap())(
                 self.0,
                 this_obj.0,
@@ -173,14 +257,13 @@ impl CefV8Value {
     // }
 
     pub fn into_v8function(self) -> CefV8Function {
-        unsafe { CefV8Function::from_raw(self.0, self.1) }
-    }
-}
-
-impl Deref for CefV8Value {
-    type Target = CefBaseRefCounted;
-    fn deref(&self) -> &Self::Target {
-        &self.1
+        unsafe {
+            assert!(
+                self.is_function(),
+                "transforming non-function v8value into v8function"
+            );
+            CefV8Function::from_raw(self.0)
+        }
     }
 }
 
@@ -253,5 +336,81 @@ impl From<CefV8Value> for i128 {
 impl From<CefV8Value> for isize {
     fn from(value: CefV8Value) -> isize {
         value.get_int_value() as _
+    }
+}
+
+impl From<()> for CefV8Value {
+    fn from(_: ()) -> CefV8Value {
+        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_undefined() as _) }
+    }
+}
+
+impl<T: Into<CefV8Value>> From<Option<T>> for CefV8Value {
+    fn from(v: Option<T>) -> CefV8Value {
+        if let Some(v) = v {
+            v.into()
+        } else {
+            unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_null() as _) }
+        }
+    }
+}
+
+impl From<u8> for CefV8Value {
+    fn from(value: u8) -> CefV8Value {
+        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_uint(value as _) as _) }
+    }
+}
+
+impl From<u16> for CefV8Value {
+    fn from(value: u16) -> CefV8Value {
+        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_uint(value as _) as _) }
+    }
+}
+impl From<u32> for CefV8Value {
+    fn from(value: u32) -> CefV8Value {
+        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_uint(value as _) as _) }
+    }
+}
+
+impl From<usize> for CefV8Value {
+    fn from(value: usize) -> CefV8Value {
+        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_uint(value as _) as _) }
+    }
+}
+
+impl From<i8> for CefV8Value {
+    fn from(value: i8) -> CefV8Value {
+        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_int(value as _) as _) }
+    }
+}
+
+impl From<i16> for CefV8Value {
+    fn from(value: i16) -> CefV8Value {
+        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_int(value as _) as _) }
+    }
+}
+impl From<i32> for CefV8Value {
+    fn from(value: i32) -> CefV8Value {
+        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_int(value as _) as _) }
+    }
+}
+
+impl From<isize> for CefV8Value {
+    fn from(value: isize) -> CefV8Value {
+        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_int(value as _) as _) }
+    }
+}
+
+impl From<bool> for CefV8Value {
+    fn from(value: bool) -> CefV8Value {
+        unsafe {
+            CefV8Value::from_raw(cef_sys::cef_v8value_create_bool(if value { 1 } else { 0 }) as _)
+        }
+    }
+}
+
+impl From<CefString> for CefV8Value {
+    fn from(value: CefString) -> CefV8Value {
+        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_string(value.as_raw()) as _) }
     }
 }
