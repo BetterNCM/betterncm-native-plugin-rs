@@ -1,2 +1,3 @@
 [submodule "BetterNCM"]
 	url = https://github.com/MicroCBer/BetterNCM
+	path = BetterNCM
