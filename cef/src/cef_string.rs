@@ -91,8 +91,8 @@ impl Drop for CefString {
                     (cef_string_userfree_utf16_free)(s);
                 } else {
                     drop(s.str_);
+                    let _ = Box::from_raw(s);
                 }
-                let _ = Box::from_raw(s);
             }
         }
     }
