@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use cef_sys::{cef_string_userfree_utf16_free, cef_string_userfree_utf8_free};
+
 #[repr(C)]
 pub struct CefString(*mut cef_sys::cef_string_t);
 
@@ -85,8 +87,8 @@ impl Drop for CefString {
     fn drop(&mut self) {
         unsafe {
             if let Some(s) = self.0.as_mut() {
-                if let Some(dtor) = s.dtor {
-                    (dtor)(s.str_);
+                if let Some(_) = s.dtor {
+                    (cef_string_userfree_utf16_free)(s);
                 } else {
                     drop(s.str_);
                 }
