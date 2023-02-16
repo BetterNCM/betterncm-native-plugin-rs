@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "betterncm-macro",
+    "betterncm-loader",
     "betterncm-plugin-example",
     "betterncm-plugin-api",
     "cef-sys",

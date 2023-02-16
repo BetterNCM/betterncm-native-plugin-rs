@@ -1,6 +1,4 @@
-use std::ops::Deref;
-
-use crate::{CefBaseRefCounted, CefString, CefV8Function};
+use crate::{CefString, CefV8Function};
 
 #[derive(Debug)]
 pub struct CefV8Value(pub(crate) *mut cef_sys::cef_v8value_t);
@@ -24,11 +22,11 @@ impl CefV8Value {
         );
         Self(raw as _)
     }
-    pub fn from_function<F: Fn()>(func: F) -> Self {
+    pub fn from_function<F: Fn()>(_func: F) -> Self {
         let func_name = std::any::type_name::<F>();
-        let func_name = CefString::from(func_name);
+        let _func_name = CefString::from(func_name);
         unsafe {
-            let handler = Box::leak(Box::new(cef_sys::cef_v8handler_t {
+            let _handler = Box::leak(Box::new(cef_sys::cef_v8handler_t {
                 base: cef_sys::_cef_base_ref_counted_t {
                     size: ::core::mem::size_of::<cef_sys::cef_v8handler_t>(),
                     ..::core::mem::zeroed()

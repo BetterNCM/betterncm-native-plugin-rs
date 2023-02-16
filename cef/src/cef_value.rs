@@ -92,12 +92,15 @@ impl CefValue {
     pub fn set_string(&self, value: CefString) -> bool {
         unsafe { ((*self.0).set_string.unwrap())(self.0, &value as *const _ as _) != 0 }
     }
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn set_binary(&self, value: *mut cef_sys::cef_binary_value_t) -> bool {
         unsafe { ((*self.0).set_binary.unwrap())(self.0, value) != 0 }
     }
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn set_dictionary(&self, value: *mut cef_sys::cef_dictionary_value_t) -> bool {
         unsafe { ((*self.0).set_dictionary.unwrap())(self.0, value) != 0 }
     }
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn set_list(&self, value: *mut cef_sys::cef_list_value_t) -> bool {
         unsafe { ((*self.0).set_list.unwrap())(self.0, value) != 0 }
     }

@@ -6,7 +6,7 @@ use syn::*;
 pub fn betterncm_native_call(_attr: TokenStream, input: TokenStream) -> TokenStream {
     let mut func: ItemFn = syn::parse(input).unwrap();
     let original_func_name = func.sig.ident.to_owned();
-    let wrapper_func_name = format!("{}_wrapper", original_func_name);
+    let wrapper_func_name = format!("{original_func_name}_wrapper");
     let original_func_ident = format_ident!("{}", original_func_name);
     let wrapper_func_ident = format_ident!("{}", wrapper_func_name);
 

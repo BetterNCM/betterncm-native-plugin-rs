@@ -5,7 +5,7 @@ use cef::CefV8Value;
 #[betterncm_native_call]
 fn test_func(arg0: usize, arg1: CefV8Value) {
     println!("BetterNCM ❤ Rust!");
-    println!("{} {:?}!", arg0, arg1);
+    println!("{arg0} {arg1:?}!");
     unsafe {
         dbg!(cef_sys::cef_v8context_get_current_context());
     }

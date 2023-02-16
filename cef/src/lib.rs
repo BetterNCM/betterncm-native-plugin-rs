@@ -1,3 +1,5 @@
+#![allow(clippy::missing_safety_doc)]
+
 mod cef_string;
 pub use cef_string::*;
 mod cef_value;

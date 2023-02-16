@@ -3,8 +3,7 @@ pub struct CefBaseRefCounted(*mut cef_sys::cef_base_ref_counted_t);
 
 impl CefBaseRefCounted {
     pub unsafe fn from_raw(value: *mut cef_sys::cef_base_ref_counted_t) -> Self {
-        let v = Self(value);
-        v
+        Self(value)
     }
 
     pub fn add_ref(&self) {
