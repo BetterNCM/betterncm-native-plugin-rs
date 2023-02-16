@@ -1,14 +1,19 @@
 mod cef_hooks;
+mod exception;
 mod proxy_functions;
+mod scheme_hijack;
 
 use windows::Win32::{
     Foundation::*,
+    System::{Console::SetConsoleCP, LibraryLoader::DisableThreadLibraryCalls},
     UI::WindowsAndMessaging::{MessageBoxW, MB_OK},
 };
 use windows::{
     core::*,
     Win32::System::{Console::AllocConsole, SystemServices::DLL_PROCESS_ATTACH},
 };
+
+pub fn debug() {}
 
 #[no_mangle]
 extern "system" fn DllMain(
@@ -35,7 +40,7 @@ extern "system" fn DllMain(
 
 fn initialize(dll_module: HINSTANCE) -> anyhow::Result<()> {
     unsafe {
-        proxy_functions::init_proxy_functions(dll_module)?;
+        SetConsoleCP(65001);
 
         #[derive(Debug, Clone, Copy, PartialEq)]
         enum ProcessType {
@@ -57,17 +62,20 @@ fn initialize(dll_module: HINSTANCE) -> anyhow::Result<()> {
                 ProcessType::Main
             }
         };
-        
-        cef_hooks::init_cef_hooks()?;
 
         if process_type == ProcessType::Main {
             AllocConsole();
             println!("MWBNCM 正在启动！");
-            println!("正在重解压插件！");
-        } else if process_type == ProcessType::Renderer {
-            println!("MWBNCM 初始化成功！");
-            AllocConsole();
+            println!("正在重新解压插件！");
         }
+
+        proxy_functions::init_proxy_functions(dll_module)?;
+        exception::init_exception();
+        cef_hooks::init_cef_hooks()?;
+
+        println!("MWBNCM 初始化成功！");
+
+        DisableThreadLibraryCalls(dll_module);
     }
     Ok(())
 }

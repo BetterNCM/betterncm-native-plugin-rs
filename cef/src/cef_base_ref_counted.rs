@@ -43,7 +43,7 @@ pub(crate) unsafe fn cef_release<T>(base_ref: *mut T) -> *mut T {
     base_ref as *mut T
 }
 
-pub(crate) fn create_once_ref<T>() -> cef_sys::cef_base_ref_counted_t {
+pub fn create_once_ref<T>() -> cef_sys::cef_base_ref_counted_t {
     cef_sys::cef_base_ref_counted_t {
         size: ::core::mem::size_of::<T>() as _,
         add_ref: Some(add_ref),
