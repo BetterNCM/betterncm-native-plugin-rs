@@ -1,4 +1,4 @@
-use crate::{cef_add_ref, cef_release, CefBaseRefCounted, CefString, CefV8Value};
+use crate::{cef_add_ref, cef_release, CefString, CefV8Value};
 
 #[derive(Debug)]
 pub struct CefV8Function(
@@ -19,7 +19,7 @@ impl CefV8Function {
 
     pub fn execute_function(&self, arguments: &[CefV8ProxyValue]) {
         unsafe {
-            println!("Calling function {:?} on non-renderer thread!", self);
+            println!("Calling function {self:?} on non-renderer thread!");
             let ctx = cef_add_ref(self.1);
             let runner = self.2;
             #[repr(C)]
@@ -76,7 +76,7 @@ impl CefV8Function {
                 },
                 ctx,
                 function: cef_add_ref(self.0),
-                arguments: arguments.iter().cloned().collect(),
+                arguments: arguments.to_vec(),
             }));
 
             dbg!(((*runner).post_task).unwrap()(runner, task as *mut _ as _));
