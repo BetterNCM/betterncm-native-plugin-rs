@@ -90,8 +90,9 @@ impl Drop for CefString {
                 if s.dtor.is_some() {
                     (cef_string_userfree_utf16_free)(s);
                 } else {
-                    let _ = Box::from_raw(s);
+                    drop(s.str_);
                 }
+                let _ = Box::from_raw(s);
             }
         }
     }
