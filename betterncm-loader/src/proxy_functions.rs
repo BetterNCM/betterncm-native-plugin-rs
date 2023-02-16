@@ -1,4 +1,4 @@
-// Hook 手法参考: https://www.pediy.com/kssd/pediy12/131397.html
+//! Hook 手法参考: https://www.pediy.com/kssd/pediy12/131397.html
 
 use std::{ffi::OsString, os::windows::prelude::OsStringExt, path::PathBuf};
 
@@ -45,11 +45,27 @@ pub unsafe fn init_proxy_functions(current_dll: HINSTANCE) -> anyhow::Result<()>
     let original_dll = LoadLibraryW(&HSTRING::from(dll_path)).context("加载原始 DLL 失败！")?;
     let current_process = GetCurrentProcess();
 
-    let hook_func = |func: unsafe extern "cdecl" fn(), name: PCSTR| -> anyhow::Result<()> {
-        let from_addr = func as usize as isize;
+    let mut hooked_addresses = Vec::new();
+
+    let mut hook_func = |name: PCSTR| -> anyhow::Result<()> {
+        let from_addr = GetProcAddress(current_dll, name)
+            .with_context(|| format!("无法找到 {:?} 中的目标函数 {:?}", original_dll, name))?
+            as usize as isize;
         let to_addr = GetProcAddress(original_dll, name)
             .with_context(|| format!("无法找到 {:?} 中的原始函数 {:?}", original_dll, name))?
             as usize as isize;
+
+        if hooked_addresses.contains(&from_addr) {
+            anyhow::bail!("该地址已被重定向: 0x{:08X}", from_addr);
+        }
+        hooked_addresses.push(from_addr);
+
+        println!(
+            "正在重定向原 DLL 函数 {} 从 0x{:08X} 到 0x{:08X}",
+            name.to_string().unwrap_or_default(),
+            from_addr,
+            to_addr
+        );
 
         let jmp_cmd: u8 = 0xE9;
 
@@ -87,25 +103,44 @@ pub unsafe fn init_proxy_functions(current_dll: HINSTANCE) -> anyhow::Result<()>
         Ok(())
     };
 
-    hook_func(hooked_funcs::AlphaBlend, s!("AlphaBlend"))?;
-    hook_func(hooked_funcs::DllInitialize, s!("DllInitialize"))?;
-    hook_func(hooked_funcs::GradientFill, s!("GradientFill"))?;
-    hook_func(hooked_funcs::TransparentBlt, s!("TransparentBlt"))?;
-    hook_func(hooked_funcs::vSetDdrawflag, s!("vSetDdrawflag"))?;
+    hook_func(s!("AlphaBlend"))?;
+    hook_func(s!("DllInitialize"))?;
+    hook_func(s!("GradientFill"))?;
+    hook_func(s!("TransparentBlt"))?;
+    hook_func(s!("vSetDdrawflag"))?;
 
     Ok(())
 }
 
 #[allow(non_snake_case)]
 mod hooked_funcs {
+    //! 如果是空函数的话，会被优化掉产生未定义行为，所以得往里面加点东西
+    //!
+    //! 如果这里的函数体被**真的**执行了，说明 Hook 并没有成功
+
     #[no_mangle]
-    pub unsafe extern "cdecl" fn AlphaBlend() {}
+    pub unsafe extern "system" fn AlphaBlend() -> ! {
+        println!("AlphaBlend 函数没有被正确替换！");
+        panic!();
+    }
     #[no_mangle]
-    pub unsafe extern "cdecl" fn DllInitialize() {}
+    pub unsafe extern "system" fn DllInitialize() -> ! {
+        println!("DllInitialize 函数没有被正确替换！");
+        panic!();
+    }
     #[no_mangle]
-    pub unsafe extern "cdecl" fn GradientFill() {}
+    pub unsafe extern "system" fn GradientFill() -> ! {
+        println!("GradientFill 函数没有被正确替换！");
+        panic!();
+    }
     #[no_mangle]
-    pub unsafe extern "cdecl" fn TransparentBlt() {}
+    pub unsafe extern "system" fn TransparentBlt() -> ! {
+        println!("TransparentBlt 函数没有被正确替换！");
+        panic!();
+    }
     #[no_mangle]
-    pub unsafe extern "cdecl" fn vSetDdrawflag() {}
+    pub unsafe extern "system" fn vSetDdrawflag() -> ! {
+        println!("vSetDdrawflag 函数没有被正确替换！");
+        panic!();
+    }
 }

@@ -1,7 +1,5 @@
 use std::fmt::Display;
 
-use cef_sys::cef_string_userfree_utf16_free;
-
 #[repr(C)]
 pub struct CefString(*mut cef_sys::cef_string_t);
 
@@ -79,21 +77,6 @@ impl From<&str> for CefString {
             );
 
             Self::from_raw(&mut result as *mut _ as _)
-        }
-    }
-}
-
-impl Drop for CefString {
-    fn drop(&mut self) {
-        unsafe {
-            if let Some(s) = self.0.as_mut() {
-                if s.dtor.is_some() {
-                    (cef_string_userfree_utf16_free)(s);
-                } else {
-                    drop(s.str_);
-                }
-                let _ = Box::from_raw(s);
-            }
         }
     }
 }
