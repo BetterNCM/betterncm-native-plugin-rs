@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::{CefString, CefV8Function};
 
 #[derive(Debug)]
@@ -13,7 +15,7 @@ pub type CefV8HandlerCallback<E> =
     dyn Fn(&str, CefV8Value, Vec<CefV8Value>) -> ::core::result::Result<CefV8Value, E>;
 
 impl CefV8Value {
-    pub unsafe fn from_raw(raw: *mut ::core::ffi::c_void) -> Self {
+    pub unsafe fn from_raw(raw: *mut cef_sys::cef_v8value_t) -> Self {
         assert!(!raw.is_null(), "creating v8 value on null pointer");
         assert_ne!(
             cef_sys::cef_currently_on(cef_sys::cef_thread_id_t_TID_RENDERER),
@@ -22,7 +24,7 @@ impl CefV8Value {
         );
         Self(raw as _)
     }
-    pub fn from_function<F: Fn()>(_func: F) -> Self {
+    pub fn from_function<F: Fn() + 'static>(_func: F) -> Self {
         let func_name = std::any::type_name::<F>();
         let _func_name = CefString::from(func_name);
         unsafe {
@@ -169,8 +171,8 @@ impl CefV8Value {
     }
     pub fn has_value_bykey(&self, key: &str) -> bool {
         unsafe {
-            ((*self.0).has_value_bykey.unwrap())(self.0, &CefString::from(key) as *const _ as _)
-                != 0
+            let key = CefString::from(key);
+            ((*self.0).has_value_bykey.unwrap())(self.0, key.to_raw()) != 0
         }
     }
     pub fn has_value_byindex(&self, index: ::core::ffi::c_int) -> bool {
@@ -196,9 +198,12 @@ impl CefV8Value {
     pub fn get_value_byindex(&self, index: isize) -> Self {
         unsafe { Self::from_raw(((*self.0).get_value_byindex.unwrap())(self.0, index as _) as _) }
     }
-    // pub fn set_value_bykey(&self) -> bool {
-    //     unsafe { ((*self.0).set_value_bykey.unwrap())(self.0) }
-    // }
+    pub fn set_value_bykey(&self, key: &str, value: Self) -> bool {
+        unsafe {
+            let key = CefString::from(key);
+            ((*self.0).set_value_bykey.unwrap())(self.0, key.to_raw(), value.as_raw(), 0) != 0
+        }
+    }
     // pub fn set_value_byindex(&self) -> bool {
     //     unsafe { ((*self.0).set_value_byindex.unwrap())(self.0) }
     // }
@@ -410,5 +415,26 @@ impl From<bool> for CefV8Value {
 impl From<CefString> for CefV8Value {
     fn from(value: CefString) -> CefV8Value {
         unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_string(value.as_raw()) as _) }
+    }
+}
+
+impl From<&str> for CefV8Value {
+    fn from(s: &str) -> CefV8Value {
+        unsafe {
+            CefV8Value::from_raw(cef_sys::cef_v8value_create_string(
+                CefString::from(s).to_raw(),
+            ))
+        }
+    }
+}
+
+impl FromStr for CefV8Value {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(unsafe {
+            CefV8Value::from_raw(cef_sys::cef_v8value_create_string(
+                CefString::from(s).to_raw(),
+            ))
+        })
     }
 }

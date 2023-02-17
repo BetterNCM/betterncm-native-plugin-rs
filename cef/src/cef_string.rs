@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 #[repr(C)]
 pub struct CefString(*mut cef_sys::cef_string_t);
@@ -9,6 +9,18 @@ impl CefString {
     }
     pub unsafe fn as_raw(&self) -> *mut cef_sys::cef_string_t {
         self.0
+    }
+    pub unsafe fn to_raw(self) -> *mut cef_sys::cef_string_t {
+        self.0
+    }
+}
+
+impl Debug for CefString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CefString")
+            .field("addr", &format!("0x{:08X}", self.0 as usize))
+            .field("str", &format!("{:?}", self.to_string()))
+            .finish()
     }
 }
 
@@ -40,7 +52,7 @@ impl Display for CefString {
                 if data.str_.is_null() {
                     "".into()
                 } else {
-                    String::from_utf16_lossy(std::slice::from_raw_parts(data.str_, data.length))
+                    String::from_utf16_lossy(::core::slice::from_raw_parts(data.str_, data.length))
                 }
             } else {
                 "".into()
@@ -57,7 +69,7 @@ impl From<CefString> for String {
                 if data.str_.is_null() {
                     "".into()
                 } else {
-                    String::from_utf16_lossy(std::slice::from_raw_parts(data.str_, data.length))
+                    String::from_utf16_lossy(::core::slice::from_raw_parts(data.str_, data.length))
                 }
             } else {
                 "".into()
@@ -69,14 +81,16 @@ impl From<CefString> for String {
 impl From<&str> for CefString {
     fn from(data: &str) -> Self {
         unsafe {
-            let mut result: cef_sys::cef_string_t = ::core::mem::zeroed();
+            let result: &mut cef_sys::cef_string_t = Box::leak(Box::new(::core::mem::zeroed()));
+
+            let data = data.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
 
             assert_ne!(
-                cef_sys::cef_string_utf8_to_utf16(data.as_ptr() as _, data.len(), &mut result),
+                cef_sys::cef_string_utf16_set(data.as_ptr(), data.len() - 1, result, 1),
                 0
             );
 
-            Self::from_raw(&mut result as *mut _ as _)
+            Self::from_raw(result as *mut _ as _)
         }
     }
 }
