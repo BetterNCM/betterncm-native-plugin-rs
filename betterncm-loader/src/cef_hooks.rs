@@ -45,6 +45,12 @@ pub unsafe fn init_cef_hooks() -> anyhow::Result<()> {
         hook::cef_register_scheme_handler_factory as _,
     )?;
 
+    hook::CEF_GET_CURRENT_CTX = hook_cef_function(
+        cef_dll,
+        s!("cef_v8context_get_current_context"),
+        hook::cef_v8context_get_current_context as _,
+    )?;
+
     println!("CEF Hook 已初始化完毕！");
 
     Ok(())
@@ -57,7 +63,8 @@ mod hook {
     use detour::RawDetour;
     use once_cell::sync::Lazy;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CW_USEDEFAULT, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        SetLayeredWindowAttributes, CW_USEDEFAULT, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
+        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     };
 
     #[derive(Default)]
@@ -110,6 +117,22 @@ mod hook {
 
     pub(self) fn get_cef_hook_data() -> &'static mut Lazy<CEFHookData> {
         unsafe { &mut CEF_HOOK_DATA }
+    }
+
+    pub static mut CEF_GET_CURRENT_CTX: Option<RawDetour> = None;
+    pub unsafe extern "C" fn cef_v8context_get_current_context() -> *mut cef_v8context_t {
+        let ori_func: fn() -> *mut cef_v8context_t =
+            std::mem::transmute(CEF_GET_CURRENT_CTX.as_ref().unwrap().trampoline());
+        let ctx = ori_func().as_mut().unwrap();
+
+        let frame = ctx.get_frame.unwrap()(ctx).as_mut().unwrap();
+        if frame.is_main.unwrap()(frame) != 0 {
+            let global_this = cef::CefV8Value::from_raw(ctx.get_global.unwrap()(ctx));
+
+            crate::api::setup_native_api(global_this);
+        }
+
+        ctx
     }
 
     pub static mut CEF_REG_SCHEME_HANDLER: Option<RawDetour> = None;
@@ -176,7 +199,7 @@ mod hook {
         data_out: *mut c_void,
         bytes_to_read: c_int,
         bytes_read: *mut c_int,
-        callback: *mut _cef_callback_t,
+        _callback: *mut _cef_callback_t,
     ) -> c_int {
         let handler = get_scheme_mitm_handler();
 
@@ -187,9 +210,7 @@ mod hook {
             std::slice::from_raw_parts_mut(data_out as _, bytes_to_read as _),
         ) as _;
 
-        println!("已写入数据 {}", *bytes_read);
-
-        if dbg!(*bytes_read == 0) {
+        if *bytes_read == 0 {
             0
         } else {
             1
@@ -215,19 +236,6 @@ mod hook {
                 res_urls: HashMap::with_capacity(1024),
                 res_cursors: HashMap::with_capacity(1024),
             }
-        }
-
-        pub fn clear(&mut self) {
-            self.cached_url_data.clear();
-            self.res_cursors.clear();
-        }
-
-        pub fn remove(&mut self, url: &str) {
-            self.cached_url_data.remove(url);
-        }
-
-        pub fn set_data(&mut self, url: &str, data: Vec<u8>) {
-            self.cached_url_data.insert(url.to_owned(), data);
         }
 
         pub fn fill_data(
@@ -333,6 +341,8 @@ mod hook {
         hook_data.origin_cef_get_keyboard_handler = client.get_keyboard_handler;
         client.get_keyboard_handler = Some(hook_get_keyboard_handler);
 
+        // client get_request_handler on_render_view_ready
+
         let result = (ori_func)(
             window_info,
             client,
@@ -343,6 +353,12 @@ mod hook {
         );
 
         hook_data.browser_window = Some(std::mem::transmute(window_info.window));
+
+        // cef_sys::cef_register_scheme_handler_factory(
+        //     cef::CefString::from("mwbncm").as_raw(),
+        //     cef::CefString::from("api").as_raw(),
+        //     factory,
+        // );
 
         result
     }
@@ -434,15 +450,41 @@ mod hook {
     unsafe extern "stdcall" fn hook_cef_on_load_start(
         this: *mut _cef_load_handler_t,
         browser: *mut _cef_browser_t,
-        frame: *mut _cef_frame_t,
+        _frame: *mut _cef_frame_t,
         transition_type: cef_transition_type_t,
     ) {
         let browser = browser.as_mut().unwrap();
-        let frame = frame.as_mut().unwrap();
+        let frame = _frame.as_mut().unwrap();
 
         let url = cef::CefString::from_raw(frame.get_url.unwrap()(frame) as _);
 
         println!("正在加载页面 {}", url);
+
+        // if dbg!(frame.is_main.unwrap()(frame) != 0)
+        //     && dbg!(transition_type) == cef_sys::cef_transition_type_t_TT_CLIENT_REDIRECT_FLAG
+        // {
+        //     dbg!(cef_sys::cef_get_current_platform_thread_id());
+
+        //     let _frame = _frame.as_mut().unwrap();
+        //     cef::task::renderer_post_task(|| {
+        //         let v8ctx = _frame.get_v8context.unwrap()(_frame).as_mut().unwrap();
+        //         let global_this = cef::CefV8Value::from_raw(v8ctx.get_global.unwrap()(v8ctx) as _);
+
+        //         crate::api::setup_native_api(global_this);
+
+        //         println!("已初始化原生 API");
+        //     });
+        // }
+
+        let host = browser.get_host.unwrap()(browser).as_mut().unwrap();
+        let hwnd: windows::Win32::Foundation::HWND =
+            std::mem::transmute(host.get_window_handle.unwrap()(host));
+        SetLayeredWindowAttributes(
+            hwnd,
+            None,
+            0,
+            windows::Win32::UI::WindowsAndMessaging::LAYERED_WINDOW_ATTRIBUTES_FLAGS(0),
+        );
 
         get_cef_hook_data().origin_cef_on_load_start.unwrap()(this, browser, frame, transition_type)
     }
