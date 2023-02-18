@@ -3,6 +3,7 @@
 use std::{ffi::OsString, os::windows::prelude::OsStringExt, path::PathBuf};
 
 use anyhow::Context;
+use tracing::*;
 use windows::{
     core::*,
     Win32::{
@@ -60,7 +61,7 @@ pub unsafe fn init_proxy_functions(current_dll: HINSTANCE) -> anyhow::Result<()>
         }
         hooked_addresses.push(from_addr);
 
-        println!(
+        debug!(
             "正在重定向原 DLL 函数 {} 从 0x{:08X} 到 0x{:08X}",
             name.to_string().unwrap_or_default(),
             from_addr,
@@ -117,30 +118,33 @@ mod hooked_funcs {
     //! 如果是空函数的话，会被优化掉产生未定义行为，所以得往里面加点东西
     //!
     //! 如果这里的函数体被**真的**执行了，说明 Hook 并没有成功
+    //!
+
+    use tracing::*;
 
     #[no_mangle]
     pub unsafe extern "system" fn AlphaBlend() -> ! {
-        println!("AlphaBlend 函数没有被正确替换！");
+        error!("AlphaBlend 函数没有被正确替换！");
         panic!();
     }
     #[no_mangle]
     pub unsafe extern "system" fn DllInitialize() -> ! {
-        println!("DllInitialize 函数没有被正确替换！");
+        error!("DllInitialize 函数没有被正确替换！");
         panic!();
     }
     #[no_mangle]
     pub unsafe extern "system" fn GradientFill() -> ! {
-        println!("GradientFill 函数没有被正确替换！");
+        error!("GradientFill 函数没有被正确替换！");
         panic!();
     }
     #[no_mangle]
     pub unsafe extern "system" fn TransparentBlt() -> ! {
-        println!("TransparentBlt 函数没有被正确替换！");
+        error!("TransparentBlt 函数没有被正确替换！");
         panic!();
     }
     #[no_mangle]
     pub unsafe extern "system" fn vSetDdrawflag() -> ! {
-        println!("vSetDdrawflag 函数没有被正确替换！");
+        error!("vSetDdrawflag 函数没有被正确替换！");
         panic!();
     }
 }

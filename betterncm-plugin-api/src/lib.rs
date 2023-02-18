@@ -12,6 +12,8 @@ pub enum NativeAPIType {
 }
 
 impl NativeAPIType {
+    /// # Safety
+    /// 不建议手动调用，最好用宏来调用
     pub unsafe fn into_value(&self, raw_value: *mut ::core::ffi::c_void) -> NativeAPIValue {
         match self {
             Self::Int => NativeAPIValue::Int(*(raw_value as *mut ::core::ffi::c_int)),
@@ -54,6 +56,8 @@ pub struct PluginContext {
 }
 
 impl PluginContext {
+    /// # Safety
+    /// 不建议手动调用，最好用宏来调用
     pub unsafe fn add_native_api_raw(
         &self,
         args: *const NativeAPIType,

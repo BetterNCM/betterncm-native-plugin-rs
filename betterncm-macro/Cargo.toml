@@ -11,3 +11,4 @@ proc-macro = true
 [dependencies]
 quote = "1.0"
 syn = { version = "1.0", features = ["full"] }
+# prettyplease = "0.1.23"

@@ -97,8 +97,8 @@ pub enum CefV8ProxyValue {
 impl From<CefV8ProxyValue> for CefV8Value {
     fn from(value: CefV8ProxyValue) -> Self {
         match value {
-            CefV8ProxyValue::Undefined => Self::create_undefined(),
-            CefV8ProxyValue::Null => Self::create_null(),
+            CefV8ProxyValue::Undefined => Self::new_undefined(),
+            CefV8ProxyValue::Null => Self::new_null(),
             CefV8ProxyValue::Boolean(v) => v.into(),
             CefV8ProxyValue::UInt(v) => v.into(),
             CefV8ProxyValue::Int(v) => v.into(),
@@ -110,8 +110,8 @@ impl From<CefV8ProxyValue> for CefV8Value {
 impl From<&CefV8ProxyValue> for CefV8Value {
     fn from(value: &CefV8ProxyValue) -> Self {
         match value {
-            CefV8ProxyValue::Undefined => Self::create_undefined(),
-            CefV8ProxyValue::Null => Self::create_null(),
+            CefV8ProxyValue::Undefined => Self::new_undefined(),
+            CefV8ProxyValue::Null => Self::new_null(),
             CefV8ProxyValue::Boolean(v) => (*v).into(),
             CefV8ProxyValue::UInt(v) => (*v).into(),
             CefV8ProxyValue::Int(v) => (*v).into(),
@@ -123,6 +123,12 @@ impl From<&CefV8ProxyValue> for CefV8Value {
 impl From<()> for CefV8ProxyValue {
     fn from(_: ()) -> Self {
         Self::Undefined
+    }
+}
+
+impl From<String> for CefV8ProxyValue {
+    fn from(value: String) -> Self {
+        Self::String(CefString::from(value.as_str()))
     }
 }
 

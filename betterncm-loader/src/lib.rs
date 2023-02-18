@@ -5,6 +5,7 @@ mod proxy_functions;
 mod scheme_hijack;
 
 use once_cell::sync::Lazy;
+use tracing::*;
 use windows::Win32::{
     Foundation::*,
     System::{Console::SetConsoleCP, LibraryLoader::DisableThreadLibraryCalls},
@@ -20,6 +21,23 @@ use windows::{
 
 pub fn debug() {}
 
+pub fn open_console() {
+    unsafe {
+        AllocConsole();
+        SetConsoleCP(936);
+        // SetConsoleCP(65001);
+    }
+
+    let _ = ansi_term::enable_ansi_support();
+    let _ = tracing::subscriber::set_global_default(
+        tracing_subscriber::fmt()
+            .with_max_level(Level::DEBUG)
+            .pretty()
+            .with_thread_names(true)
+            .finish(),
+    );
+}
+
 #[no_mangle]
 extern "system" fn DllMain(
     dll_module: HINSTANCE,
@@ -28,8 +46,15 @@ extern "system" fn DllMain(
 ) -> BOOL {
     match reason {
         DLL_PROCESS_ATTACH => {
+            if *PROCESS_TYPE == ProcessType::Main {
+                open_console();
+
+                info!("MWBNCM 正在启动！");
+                info!("正在重新解压插件！");
+            }
+
             if let Err(e) = initialize(dll_module) {
-                eprintln!("MWBNCM DLL Hook 初始化失败： {:?}", e.root_cause());
+                error!("MWBNCM DLL Hook 初始化失败： {:?}", e.root_cause());
                 let e = HSTRING::from(format!("{e:?}"));
                 unsafe {
                     MessageBoxW(None, &e, w!("MWBNCM DLL Hook 初始化失败"), MB_OK);
@@ -40,7 +65,7 @@ extern "system" fn DllMain(
             }
         }
         DLL_PROCESS_DETACH => {
-            println!("正在结束");
+            info!("正在结束");
             if _reserved.is_null() {
                 if let Some(home_dir) = dirs::home_dir() {
                     let web_log_path = home_dir.join("AppData/Local/NetEase/CloudMusic/web.log");
@@ -77,20 +102,11 @@ pub static PROCESS_TYPE: Lazy<ProcessType> = Lazy::new(|| {
 
 fn initialize(dll_module: HINSTANCE) -> anyhow::Result<()> {
     unsafe {
-        SetConsoleCP(65001);
-
-        AllocConsole();
-
-        if *PROCESS_TYPE == ProcessType::Main {
-            println!("MWBNCM 正在启动！");
-            println!("正在重新解压插件！");
-        }
-
         proxy_functions::init_proxy_functions(dll_module)?;
         exception::init_exception();
         cef_hooks::init_cef_hooks()?;
 
-        println!("MWBNCM 初始化成功！");
+        info!("MWBNCM 初始化成功！");
 
         DisableThreadLibraryCalls(dll_module);
     }
