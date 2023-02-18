@@ -1,5 +1,6 @@
 use anyhow::Context;
 use detour::RawDetour;
+use tracing::*;
 use windows::{
     core::*,
     s,
@@ -9,17 +10,20 @@ use windows::{
     },
 };
 
+#[instrument]
 pub unsafe fn init_cef_hooks() -> anyhow::Result<()> {
     let cef_dll = LoadLibraryW(w!("libcef.dll")).context("无法加载 LibCEF 动态链接库！")?;
 
-    unsafe fn hook_cef_function(
-        cef_dll: HINSTANCE,
+    unsafe fn hook_dll_function(
+        dll_instance: HINSTANCE,
         name: PCSTR,
         hook_func: *const (),
     ) -> anyhow::Result<Option<RawDetour>> {
-        let target = GetProcAddress(cef_dll, name).context("")? as *const ();
+        let target = GetProcAddress(dll_instance, name)
+            .with_context(|| format!("无法 Hook 函数 {}", name.display()))?
+            as *const ();
 
-        println!(
+        debug!(
             "正在 Hook {} 从 {:?} 到 {:?}",
             name.to_string().unwrap_or_default(),
             target,
@@ -33,27 +37,100 @@ pub unsafe fn init_cef_hooks() -> anyhow::Result<()> {
         Ok(Some(hook))
     }
 
-    hook::CEF_INITIALIZE = hook_cef_function(
+    hook::CEF_INITIALIZE = hook_dll_function(
         cef_dll,
-        s!("cef_browser_host_create_browser_sync"),
-        hook::cef_browser_host_create_browser_sync as _,
+        s!("cef_initialize"),
+        hook::hook_cef_initialize as _,
     )?;
 
-    hook::CEF_REG_SCHEME_HANDLER = hook_cef_function(
+    hook::CEF_CREATE_BROWSER_SYNC = hook_dll_function(
+        cef_dll,
+        s!("cef_browser_host_create_browser_sync"),
+        hook::hook_cef_browser_host_create_browser_sync as _,
+    )?;
+
+    hook::CEF_REG_SCHEME_HANDLER = hook_dll_function(
         cef_dll,
         s!("cef_register_scheme_handler_factory"),
         hook::cef_register_scheme_handler_factory as _,
     )?;
 
-    hook::CEF_GET_CURRENT_CTX = hook_cef_function(
+    hook::CEF_GET_CURRENT_CTX = hook_dll_function(
         cef_dll,
         s!("cef_v8context_get_current_context"),
         hook::cef_v8context_get_current_context as _,
     )?;
 
-    println!("CEF Hook 已初始化完毕！");
+    debug!("CEF Hook 已初始化完毕！");
+
+    let d3d11_dll = LoadLibraryW(w!("d3d11.dll")).context("无法加载 D3D11 动态链接库！")?;
+
+    // D2D1CreateFactory
+    d2d1_hook::D3D11_CREATE_DEVICE = hook_dll_function(
+        d3d11_dll,
+        s!("D3D11CreateDevice"),
+        d2d1_hook::hook_d3d11_create_device as _,
+    )?;
 
     Ok(())
+}
+
+mod d2d1_hook {
+    use detour::RawDetour;
+    use tracing::*;
+    use windows::{w, Win32::UI::WindowsAndMessaging::FindWindowW};
+    pub static mut D3D11_CREATE_DEVICE: Option<RawDetour> = None;
+
+    pub unsafe extern "system" fn hook_d3d11_create_device(
+        padapter: windows_sys::Win32::Graphics::Dxgi::IDXGIAdapter,
+        drivertype: windows_sys::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE,
+        software: windows_sys::Win32::Foundation::HINSTANCE,
+        flags: windows_sys::Win32::Graphics::Direct3D11::D3D11_CREATE_DEVICE_FLAG,
+        _pfeaturelevels: *const windows_sys::Win32::Graphics::Direct3D::D3D_FEATURE_LEVEL,
+        _featurelevels: u32,
+        sdkversion: u32,
+        ppdevice: *mut windows_sys::Win32::Graphics::Direct3D11::ID3D11Device,
+        pfeaturelevel: *mut windows_sys::Win32::Graphics::Direct3D::D3D_FEATURE_LEVEL,
+        ppimmediatecontext: *mut windows_sys::Win32::Graphics::Direct3D11::ID3D11DeviceContext,
+    ) -> ::windows_sys::core::HRESULT {
+        use windows_sys::Win32::Graphics::Dxgi::*;
+        let ncm_hwnd = FindWindowW(w!("OrpheusBrowserHost"), None);
+
+        let scd = DXGI_SWAP_CHAIN_DESC {
+            BufferCount: 1,
+            BufferDesc: Common::DXGI_MODE_DESC {
+                Format: Common::DXGI_FORMAT_R8G8B8A8_UNORM,
+                ..std::mem::zeroed()
+            },
+            BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
+            OutputWindow: ncm_hwnd.0,
+            SampleDesc: Common::DXGI_SAMPLE_DESC {
+                Count: 1,
+                ..std::mem::zeroed()
+            },
+            Windowed: 1,
+            ..std::mem::zeroed()
+        };
+
+        let result = windows_sys::Win32::Graphics::Direct3D11::D3D11CreateDeviceAndSwapChain(
+            dbg!(padapter),
+            dbg!(drivertype),
+            dbg!(software),
+            dbg!(flags),
+            std::ptr::null(),
+            0,
+            dbg!(sdkversion),
+            &scd,
+            std::ptr::null_mut(),
+            dbg!(ppdevice),
+            dbg!(pfeaturelevel),
+            dbg!(ppimmediatecontext),
+        );
+
+        debug!("创建了 D3D 设备上下文");
+
+        result
+    }
 }
 
 mod hook {
@@ -62,9 +139,14 @@ mod hook {
     use cef_sys::*;
     use detour::RawDetour;
     use once_cell::sync::Lazy;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        SetLayeredWindowAttributes, CW_USEDEFAULT, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
-        WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    use tracing::*;
+    use windows::Win32::{
+        Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND},
+        UI::WindowsAndMessaging::{
+            GetClassNameW, SetLayeredWindowAttributes, SetWindowLongW, CW_USEDEFAULT, GWL_EXSTYLE,
+            LWA_ALPHA, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_EX_COMPOSITED, WS_OVERLAPPEDWINDOW,
+            WS_VISIBLE,
+        },
     };
 
     #[derive(Default)]
@@ -121,6 +203,8 @@ mod hook {
 
     pub static mut CEF_GET_CURRENT_CTX: Option<RawDetour> = None;
     pub unsafe extern "C" fn cef_v8context_get_current_context() -> *mut cef_v8context_t {
+        crate::open_console();
+
         let ori_func: fn() -> *mut cef_v8context_t =
             std::mem::transmute(CEF_GET_CURRENT_CTX.as_ref().unwrap().trampoline());
         let ctx = ori_func().as_mut().unwrap();
@@ -141,7 +225,7 @@ mod hook {
         domain_name: *const cef_string_t,
         factory: &mut cef_scheme_handler_factory_t,
     ) -> c_int {
-        let ori_func: fn(
+        let ori_func: unsafe extern "C" fn(
             scheme_name: *const cef_string_t,
             domain_name: *const cef_string_t,
             factory: *mut cef_scheme_handler_factory_t,
@@ -150,7 +234,7 @@ mod hook {
         let scheme = cef::CefString::from_raw(scheme_name as _);
         let domain = cef::CefString::from_raw(domain_name as _);
 
-        println!(
+        trace!(
             "创建了自定义协议回调: 0x{:08X} {} {}",
             factory.create.unwrap() as usize,
             scheme,
@@ -188,7 +272,7 @@ mod hook {
             let handler = get_scheme_mitm_handler();
             handler.add_new_res(result, url.as_str());
 
-            println!("已捕获自定义协议请求: {}", url);
+            trace!("已捕获自定义协议请求: {}", url);
         }
 
         result
@@ -273,11 +357,11 @@ mod hook {
                 buf_read = 0;
             }
 
-            println!("已抓包数据 {} {}", result.len(), url);
+            trace!("已抓包数据 {} {}", result.len(), url);
 
             let mut result = crate::scheme_hijack::on_process_url_data(url, result);
 
-            println!("已处理包内容并缓存 {} {}", result.len(), url);
+            trace!("已处理包内容并缓存 {} {}", result.len(), url);
 
             result.shrink_to_fit();
 
@@ -311,25 +395,48 @@ mod hook {
     // ######### 脚本注入 #########
 
     pub static mut CEF_INITIALIZE: Option<RawDetour> = None;
-    pub unsafe extern "C" fn cef_browser_host_create_browser_sync(
+    #[instrument]
+    pub unsafe extern "C" fn hook_cef_initialize(
+        args: *const cef_sys::cef_main_args_t,
+        settings: *const cef_sys::cef_settings_t,
+        application: *mut cef_sys::cef_app_t,
+        windows_sandbox_info: *mut c_void,
+    ) -> ::core::ffi::c_int {
+        debug!("正在初始化 CEF！");
+        let ori_func: unsafe extern "C" fn(
+            args: *const cef_sys::cef_main_args_t,
+            settings: *const cef_sys::cef_settings_t,
+            application: *mut cef_sys::cef_app_t,
+            windows_sandbox_info: *mut c_void,
+        ) -> ::core::ffi::c_int =
+            std::mem::transmute(CEF_INITIALIZE.as_ref().unwrap().trampoline());
+        let application = application.as_mut().unwrap();
+        let _hook_data = get_cef_hook_data();
+
+        ori_func(args, settings, application, windows_sandbox_info)
+    }
+
+    pub static mut CEF_CREATE_BROWSER_SYNC: Option<RawDetour> = None;
+    #[instrument(skip_all)]
+    pub unsafe extern "C" fn hook_cef_browser_host_create_browser_sync(
         window_info: &mut cef_window_info_t,
-        client: &mut _cef_client_t,
+        client: &mut cef_client_t,
         url: &mut cef_string_t,
         settings: &mut _cef_browser_settings_t,
         extra_info: &mut _cef_dictionary_value_t,
         request_context: &mut _cef_request_context_t,
     ) -> *mut cef_browser_t {
-        println!("正在初始化浏览器窗口");
+        debug!("正在初始化浏览器窗口");
 
-        let ori_func: fn(
+        let ori_func: unsafe extern "C" fn(
             window_info: *const cef_window_info_t,
-            client: *mut _cef_client_t,
+            client: *mut cef_client_t,
             url: *const cef_string_t,
             settings: *const _cef_browser_settings_t,
             extra_info: *mut _cef_dictionary_value_t,
             request_context: *mut _cef_request_context_t,
         ) -> *mut cef_browser_t =
-            std::mem::transmute(CEF_INITIALIZE.as_ref().unwrap().trampoline());
+            std::mem::transmute(CEF_CREATE_BROWSER_SYNC.as_ref().unwrap().trampoline());
 
         let hook_data = get_cef_hook_data();
 
@@ -341,6 +448,45 @@ mod hook {
         hook_data.origin_cef_get_keyboard_handler = client.get_keyboard_handler;
         client.get_keyboard_handler = Some(hook_get_keyboard_handler);
 
+        let parent_hwnd: windows::Win32::Foundation::HWND =
+            std::mem::transmute(window_info.parent_window);
+        let mut cls_name = [0u16; 64];
+
+        let len = GetClassNameW(parent_hwnd, &mut cls_name);
+
+        dbg!(String::from_utf16_lossy(&cls_name[..len as _]));
+
+        dbg!(std::mem::transmute::<_, *const ()>(
+            client.get_render_handler
+        ));
+        dbg!(&window_info);
+        dbg!(&settings);
+
+        struct Handle(windows::Win32::Foundation::HWND);
+        unsafe impl raw_window_handle::HasRawWindowHandle for Handle {
+            fn raw_window_handle(&self) -> raw_window_handle::RawWindowHandle {
+                let mut handle = raw_window_handle::Win32WindowHandle::empty();
+                handle.hwnd = self.0 .0 as _;
+                raw_window_handle::RawWindowHandle::Win32(handle)
+            }
+        }
+
+        let _ = dbg!(DwmSetWindowAttribute(
+            parent_hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &DWMWCP_ROUND as *const _ as _,
+            std::mem::size_of_val(&DWMWCP_ROUND) as _,
+        ));
+        SetWindowLongW(parent_hwnd, GWL_EXSTYLE, WS_EX_COMPOSITED.0 as _);
+        SetLayeredWindowAttributes(parent_hwnd, None, 0, LWA_ALPHA);
+        let _ = dbg!(window_shadows::set_shadow(Handle(parent_hwnd), true));
+
+        // if !window_info.window.is_null() {
+        //     window_info.ex_style |= WS_EX_LAYERED;
+        //     window_info.windowless_rendering_enabled = 1;
+        // }
+
+        settings.background_color = 0x00000000;
         // client get_request_handler on_render_view_ready
 
         let result = (ori_func)(
@@ -360,9 +506,11 @@ mod hook {
         //     factory,
         // );
 
+        debug!("浏览器窗口初始化完成");
         result
     }
 
+    #[instrument]
     unsafe extern "stdcall" fn hook_get_keyboard_handler(
         this: *mut _cef_client_t,
     ) -> *mut _cef_keyboard_handler_t {
@@ -376,6 +524,7 @@ mod hook {
         keyboard_handler as _
     }
 
+    #[instrument]
     unsafe extern "stdcall" fn hook_on_key_event(
         this: *mut _cef_keyboard_handler_t,
         browser: *mut _cef_browser_t,
@@ -434,6 +583,7 @@ mod hook {
         )
     }
 
+    #[instrument]
     unsafe extern "stdcall" fn hook_cef_load_handler(
         this: *mut _cef_client_t,
     ) -> *mut _cef_load_handler_t {
@@ -447,6 +597,7 @@ mod hook {
         load_handler as _
     }
 
+    #[instrument]
     unsafe extern "stdcall" fn hook_cef_on_load_start(
         this: *mut _cef_load_handler_t,
         browser: *mut _cef_browser_t,
@@ -456,29 +607,14 @@ mod hook {
         let browser = browser.as_mut().unwrap();
         let frame = _frame.as_mut().unwrap();
 
-        let url = cef::CefString::from_raw(frame.get_url.unwrap()(frame) as _);
+        let url = cef::CefString::from_raw(frame.get_url.unwrap()(frame) as _).to_string();
 
-        println!("正在加载页面 {}", url);
-
-        // if dbg!(frame.is_main.unwrap()(frame) != 0)
-        //     && dbg!(transition_type) == cef_sys::cef_transition_type_t_TT_CLIENT_REDIRECT_FLAG
-        // {
-        //     dbg!(cef_sys::cef_get_current_platform_thread_id());
-
-        //     let _frame = _frame.as_mut().unwrap();
-        //     cef::task::renderer_post_task(|| {
-        //         let v8ctx = _frame.get_v8context.unwrap()(_frame).as_mut().unwrap();
-        //         let global_this = cef::CefV8Value::from_raw(v8ctx.get_global.unwrap()(v8ctx) as _);
-
-        //         crate::api::setup_native_api(global_this);
-
-        //         println!("已初始化原生 API");
-        //     });
-        // }
+        debug!("正在加载页面 {}", url);
 
         let host = browser.get_host.unwrap()(browser).as_mut().unwrap();
         let hwnd: windows::Win32::Foundation::HWND =
             std::mem::transmute(host.get_window_handle.unwrap()(host));
+
         SetLayeredWindowAttributes(
             hwnd,
             None,

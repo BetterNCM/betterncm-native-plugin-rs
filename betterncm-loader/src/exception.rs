@@ -1,3 +1,4 @@
+use tracing::*;
 use windows::{
     core::HSTRING,
     w,
@@ -14,8 +15,8 @@ unsafe extern "system" fn unhandled_exception_filter(info: *const EXCEPTION_POIN
 
     let exc = info.ExceptionRecord.as_ref().unwrap();
 
-    let ncm_hwnd = FindWindowW(w!("OrpheusBrowserHost"), None);
-    let exc_code = exc.ExceptionCode.0 as u32;
+    let _ncm_hwnd = FindWindowW(w!("OrpheusBrowserHost"), None);
+    let _exc_code = exc.ExceptionCode.0 as u32;
 
     let text = format!(
         "\
@@ -23,9 +24,10 @@ unsafe extern "system" fn unhandled_exception_filter(info: *const EXCEPTION_POIN
         {exc:#?}"
     );
 
-    println!("发生严重错误：");
-    println!("{text}");
+    error!("发生严重错误：");
+    error!("{}", text);
 
+    #[cfg(not(debug_assertions))]
     if exc_code == 0xC0000005 || exc_code == 0xE0000008 || exc_code == 0x80000003 {
         if ncm_hwnd.0 != 0 {
             // TODO: 重启网易云

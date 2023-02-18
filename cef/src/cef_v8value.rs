@@ -39,13 +39,24 @@ impl CefV8Value {
             // Self::from_raw(cef_sys::cef_v8value_create_function(func_name))
         }
     }
-    pub fn create_undefined() -> Self {
+    pub fn new_object() -> Self {
+        unsafe {
+            Self::from_raw(cef_sys::cef_v8value_create_object(
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            ) as _)
+        }
+    }
+    pub fn new_undefined() -> Self {
         unsafe { Self::from_raw(cef_sys::cef_v8value_create_undefined() as _) }
     }
-    pub fn create_null() -> Self {
+    pub fn new_null() -> Self {
         unsafe { Self::from_raw(cef_sys::cef_v8value_create_null() as _) }
     }
     pub unsafe fn as_raw(&self) -> *mut cef_sys::cef_v8value_t {
+        self.0
+    }
+    pub unsafe fn to_raw(self) -> *mut cef_sys::cef_v8value_t {
         self.0
     }
     pub fn is_valid(&self) -> bool {
@@ -213,12 +224,12 @@ impl CefV8Value {
     // pub fn get_keys(&self) -> bool {
     //     unsafe { ((*self.0).get_keys.unwrap())(self.0) }
     // }
-    // pub unsafe fn set_user_data(&self, user_data: *mut ::core::ffi::c_void) -> bool {
-    //     unsafe { ((*self.0).set_user_data.unwrap())(self.0, user_data) }
-    // }
-    // pub unsafe fn get_user_data(&self) -> bool {
-    //     unsafe { ((*self.0).get_user_data.unwrap())(self.0) }
-    // }
+    pub unsafe fn set_user_data(&self, user_data: *mut cef_sys::cef_base_ref_counted_t) -> bool {
+        unsafe { ((*self.0).set_user_data.unwrap())(self.0, user_data) != 0 }
+    }
+    pub unsafe fn get_user_data(&self) -> *mut cef_sys::cef_base_ref_counted_t {
+        unsafe { ((*self.0).get_user_data.unwrap())(self.0) }
+    }
     // pub fn get_externally_allocated_memory(&self) -> bool {
     //     unsafe { ((*self.0).get_externally_allocated_memory.unwrap())(self.0) }
     // }
@@ -267,6 +278,14 @@ impl CefV8Value {
             );
             CefV8Function::from_raw(self.0)
         }
+    }
+}
+
+impl ToOwned for CefV8Value {
+    type Owned = Self;
+
+    fn to_owned(&self) -> Self::Owned {
+        Self(self.0)
     }
 }
 
@@ -342,6 +361,30 @@ impl From<CefV8Value> for isize {
     }
 }
 
+impl From<CefV8Value> for f32 {
+    fn from(value: CefV8Value) -> f32 {
+        value.get_double_value() as _
+    }
+}
+
+impl From<CefV8Value> for f64 {
+    fn from(value: CefV8Value) -> f64 {
+        value.get_double_value() as _
+    }
+}
+
+impl From<CefV8Value> for String {
+    fn from(value: CefV8Value) -> String {
+        value.get_string_value().to_string()
+    }
+}
+
+impl From<CefV8Value> for CefV8Function {
+    fn from(value: CefV8Value) -> CefV8Function {
+        value.into_v8function()
+    }
+}
+
 impl From<()> for CefV8Value {
     fn from(_: ()) -> CefV8Value {
         unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_undefined() as _) }
@@ -401,6 +444,18 @@ impl From<i32> for CefV8Value {
 impl From<isize> for CefV8Value {
     fn from(value: isize) -> CefV8Value {
         unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_int(value as _) as _) }
+    }
+}
+
+impl From<f32> for CefV8Value {
+    fn from(value: f32) -> CefV8Value {
+        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_double(value as _) as _) }
+    }
+}
+
+impl From<f64> for CefV8Value {
+    fn from(value: f64) -> CefV8Value {
+        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_double(value as _) as _) }
     }
 }
 
