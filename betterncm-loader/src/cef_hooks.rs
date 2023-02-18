@@ -203,6 +203,7 @@ mod hook {
 
     pub static mut CEF_GET_CURRENT_CTX: Option<RawDetour> = None;
     pub unsafe extern "C" fn cef_v8context_get_current_context() -> *mut cef_v8context_t {
+        #[cfg(debug_assertions)]
         crate::open_console();
 
         let ori_func: fn() -> *mut cef_v8context_t =

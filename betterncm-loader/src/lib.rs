@@ -47,6 +47,7 @@ extern "system" fn DllMain(
     match reason {
         DLL_PROCESS_ATTACH => {
             if *PROCESS_TYPE == ProcessType::Main {
+                #[cfg(debug_assertions)]
                 open_console();
 
                 info!("MWBNCM 正在启动！");
