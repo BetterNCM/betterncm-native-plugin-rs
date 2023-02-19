@@ -208,13 +208,17 @@ mod hook {
 
         let ori_func: fn() -> *mut cef_v8context_t =
             std::mem::transmute(CEF_GET_CURRENT_CTX.as_ref().unwrap().trampoline());
-        let ctx = ori_func().as_mut().unwrap();
+        let ctx = ori_func();
 
-        let frame = ctx.get_frame.unwrap()(ctx).as_mut().unwrap();
-        if frame.is_main.unwrap()(frame) != 0 {
-            let global_this = cef::CefV8Value::from_raw(ctx.get_global.unwrap()(ctx));
+        if !ctx.is_null() {
+            let ctx = ctx.as_mut().unwrap();
 
-            crate::api::setup_native_api(global_this);
+            let frame = ctx.get_frame.unwrap()(ctx).as_mut().unwrap();
+            if frame.is_main.unwrap()(frame) != 0 {
+                let global_this = cef::CefV8Value::from_raw(ctx.get_global.unwrap()(ctx));
+
+                crate::api::setup_native_api(global_this);
+            }
         }
 
         ctx
@@ -598,7 +602,7 @@ mod hook {
         load_handler as _
     }
 
-    #[instrument]
+    // #[instrument]
     unsafe extern "stdcall" fn hook_cef_on_load_start(
         this: *mut _cef_load_handler_t,
         browser: *mut _cef_browser_t,
@@ -611,6 +615,25 @@ mod hook {
         let url = cef::CefString::from_raw(frame.get_url.unwrap()(frame) as _).to_string();
 
         debug!("正在加载页面 {}", url);
+
+        if url.starts_with("orpheus://orpheus/pub/app.html") {
+            let framework_js = include_str!("../resources/framework.js");
+            let framework_js = cef::CefString::from(format!(
+                "\
+                const BETTERNCM_API_KEY=\"\";\
+                const BETTERNCM_API_PATH=\"\";\
+                const BETTERNCM_FILES_PATH=\"\";\
+                {}",
+                framework_js
+            ));
+            let framework_js_url = cef::CefString::from("betterncm://betterncm/framework.js");
+            dbg!(frame.execute_java_script.unwrap()(
+                frame,
+                framework_js.to_raw(),
+                framework_js_url.to_raw(),
+                0
+            ));
+        }
 
         let host = browser.get_host.unwrap()(browser).as_mut().unwrap();
         let hwnd: windows::Win32::Foundation::HWND =

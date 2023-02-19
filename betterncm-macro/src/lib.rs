@@ -131,6 +131,8 @@ pub fn betterncm_native_api(attr: TokenStream, input: TokenStream) -> TokenStrea
     )
     .unwrap();
 
+    wrapper.vis = func.vis.to_owned();
+
     // 生成处理参数的函数
 
     let mut inner: ItemFn = syn::parse(
@@ -159,6 +161,7 @@ pub fn betterncm_native_api(attr: TokenStream, input: TokenStream) -> TokenStrea
     func.sig.ident = Ident::new(&wrapper_func_name, original_func_name.span());
 
     let argn = func.sig.inputs.len();
+    let return_type = func.sig.output.to_owned();
     let has_return = matches!(func.sig.output, ReturnType::Type(..));
 
     inner.block.stmts.push(Stmt::Item(Item::Fn(func)));
@@ -171,24 +174,39 @@ pub fn betterncm_native_api(attr: TokenStream, input: TokenStream) -> TokenStrea
         Span::call_site().into(),
     );
     let mut unsafe_block: ExprUnsafe = syn::parse(
-        quote! {
-            unsafe {
-                use ::anyhow::*;
-                ::anyhow::ensure!(orig_args.len() >= #argn, #argn_error_string, orig_args.len());
+        {
+            if this_object {
+                quote! {
+                    unsafe {
+                        use ::anyhow::*;
+                        ::anyhow::ensure!(orig_args.len() >= #argn, #argn_error_string, orig_args.len() - 1);
+                    }
+                }
+                .into()
+            } else {
+                quote! {
+                    unsafe {
+                        use ::anyhow::*;
+                        ::anyhow::ensure!(orig_args.len() >= #argn, #argn_error_string, orig_args.len());
+                    }
+                }
+                .into()
             }
-        }
-        .into(),
+        },
     )
     .unwrap();
 
     for i in 0..argn {
         let argname = format_ident!("arg_{}", i);
         let error_string = LitStr::new(
-            &format!("没有提供第 {} 个参数", i + 1),
+            &format!("没有提供第 {} 个参数", if this_object { i } else { i + 1 }),
             Span::call_site().into(),
         );
         let type_error_string = LitStr::new(
-            &format!("第 {} 个参数类型不正确", i + 1),
+            &format!(
+                "第 {} 个参数类型不正确",
+                if this_object { i } else { i + 1 }
+            ),
             Span::call_site().into(),
         );
         unsafe_block.block.stmts.push(
@@ -222,10 +240,33 @@ pub fn betterncm_native_api(attr: TokenStream, input: TokenStream) -> TokenStrea
                 .push(syn::parse(quote! { #argname }.into()).unwrap());
         }
 
+        let type_error_string = if let ReturnType::Type(_, return_type) = &return_type {
+            LitStr::new(
+                &format!(
+                    "无法将该 {} 类型转换成 V8Value",
+                    return_type.to_token_stream().to_string().replace(' ', "")
+                ),
+                Span::call_site().into(),
+            )
+        } else {
+            LitStr::new(
+                &format!(
+                    "无法将该 {} 类型转换成 V8Value",
+                    return_type.to_token_stream().to_string().replace(' ', "")
+                ),
+                Span::call_site().into(),
+            )
+        };
+
+        let wrapper_call: ExprReturn = syn::parse(
+            quote! { return Ok((#wrapper_call)?.try_into().context(#type_error_string)?) }.into(),
+        )
+        .unwrap();
+
         unsafe_block
             .block
             .stmts
-            .push(Stmt::Expr(Expr::Call(wrapper_call)));
+            .push(Stmt::Expr(Expr::Return(wrapper_call)));
     } else {
         let mut wrapper_call: ExprCall =
             syn::parse(quote! { #wrapper_func_ident () }.into()).unwrap();
@@ -285,10 +326,10 @@ pub fn betterncm_native_api(attr: TokenStream, input: TokenStream) -> TokenStrea
 
     let func = wrapper.into_token_stream();
 
-    eprintln!(
-        "{}",
-        prettyplease::unparse(&syn::parse_file(func.to_string().as_str()).unwrap())
-    );
+    // eprintln!(
+    //     "{}",
+    //     prettyplease::unparse(&syn::parse_file(func.to_string().as_str()).unwrap())
+    // );
 
     func.into()
 }

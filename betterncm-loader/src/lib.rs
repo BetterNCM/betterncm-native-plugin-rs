@@ -1,8 +1,10 @@
 mod api;
 mod cef_hooks;
 mod exception;
+mod plugins;
 mod proxy_functions;
 mod scheme_hijack;
+mod utils;
 
 use once_cell::sync::Lazy;
 use tracing::*;
@@ -46,12 +48,27 @@ extern "system" fn DllMain(
 ) -> BOOL {
     match reason {
         DLL_PROCESS_ATTACH => {
+            if let Ok(path) = std::env::var("BETTERNCM_PATH") {
+                let _ = std::env::set_current_dir(path);
+            } else {
+                #[cfg(target_os = "windows")]
+                {
+                    let _ = std::env::set_current_dir("C:/betterncm");
+                }
+                #[cfg(not(target_os = "windows"))]
+                if let Some(path) = dirs::home_dir() {
+                    let _ = std::env::set_current_dir(path.join(".betterncm"));
+                }
+            }
+
             if *PROCESS_TYPE == ProcessType::Main {
                 #[cfg(debug_assertions)]
                 open_console();
 
                 info!("MWBNCM 正在启动！");
-                info!("正在重新解压插件！");
+
+                info!("当前数据目录：{:?}", std::env::current_dir());
+                plugins::unzip_plugins();
             }
 
             if let Err(e) = initialize(dll_module) {
