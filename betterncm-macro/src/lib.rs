@@ -1,4 +1,4 @@
-use proc_macro::TokenStream;
+use proc_macro::{Span, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use syn::*;
 
@@ -163,13 +163,49 @@ pub fn betterncm_native_api(attr: TokenStream, input: TokenStream) -> TokenStrea
 
     inner.block.stmts.push(Stmt::Item(Item::Fn(func)));
 
-    let mut unsafe_block: ExprUnsafe = syn::parse(quote! { unsafe {  } }.into()).unwrap();
+    let argn_error_string = LitStr::new(
+        &format!(
+            "参数数量不正确，需要 {} 个参数，实际输入了 {{}} 个参数",
+            if this_object { argn - 1 } else { argn }
+        ),
+        Span::call_site().into(),
+    );
+    let mut unsafe_block: ExprUnsafe = syn::parse(
+        quote! {
+            unsafe {
+                use ::anyhow::*;
+                ::anyhow::ensure!(orig_args.len() >= #argn, #argn_error_string, orig_args.len());
+            }
+        }
+        .into(),
+    )
+    .unwrap();
 
     for i in 0..argn {
         let argname = format_ident!("arg_{}", i);
+        let error_string = LitStr::new(
+            &format!("没有提供第 {} 个参数", i + 1),
+            Span::call_site().into(),
+        );
+        let type_error_string = LitStr::new(
+            &format!("第 {} 个参数类型不正确", i + 1),
+            Span::call_site().into(),
+        );
         unsafe_block.block.stmts.push(
             syn::parse(
-                quote! { let #argname = orig_args.get(#i).map(|x| ::cef::CefV8Value::from_raw(*x)).unwrap_or_else(::cef::CefV8Value::new_undefined).into(); }.into(),
+                quote! {
+                    let #argname = {
+                        let arg = orig_args
+                            .get(#i)
+                            .map(|x| ::cef::CefV8Value::from_raw(*x))
+                            .context(#error_string)?;
+                        let arg_type = arg.get_js_type();
+                        arg
+                            .try_into()
+                            .context(#type_error_string)
+                    }?;
+                }
+                .into(),
             )
             .unwrap(),
         );
@@ -248,10 +284,11 @@ pub fn betterncm_native_api(attr: TokenStream, input: TokenStream) -> TokenStrea
     }
 
     let func = wrapper.into_token_stream();
-    // println!(
-    //     "{}",
-    //     prettyplease::unparse(&syn::parse_file(func.to_string().as_str()).unwrap())
-    // );
+
+    eprintln!(
+        "{}",
+        prettyplease::unparse(&syn::parse_file(func.to_string().as_str()).unwrap())
+    );
 
     func.into()
 }
