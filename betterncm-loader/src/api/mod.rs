@@ -1,37 +1,69 @@
-use betterncm_macro::*;
 use cef::*;
-use cef_sys::cef_v8context_get_current_context;
 use tracing::*;
 
+mod app;
 mod fs;
+mod internal;
 mod scheme;
+mod util;
 
-#[betterncm_native_api(name = "test.func")]
-#[instrument]
-fn test_func(arg: String, callback: CefV8Function) {
-    std::thread::spawn(move || {
-        let arg = format!("added {arg}");
-        callback.execute_function(&[arg.into()]);
+pub(super) fn threaded_promise<T, F>(
+    this: CefV8Value,
+    resolve: CefV8Function,
+    reject: CefV8Function,
+    callback: F,
+) where
+    T: TryInto<CefV8Value> + Send + 'static,
+    F: FnOnce() -> anyhow::Result<T> + Send + 'static,
+    T::Error: std::fmt::Debug,
+    V8ValueError: From<T::Error>,
+{
+    let ctx = CefV8Context::current();
+    rayon::spawn(move || match callback() {
+        Result::Ok(result) => {
+            ctx.post_task(move || {
+                if let Ok(result) = result.try_into() {
+                    resolve.execute_function(Some(this), &[result]);
+                } else if let Ok(err) = "转换返回值类型出错".try_into() {
+                    reject.execute_function(Some(this), &[err]);
+                } else {
+                    reject.execute_function(Some(this), &[]);
+                }
+            });
+        }
+        Result::Err(err) => {
+            let err = format!("{:?}", err);
+            ctx.post_task(move || {
+                if let Ok(err) = err.try_into() {
+                    reject.execute_function(Some(this), &[err]);
+                } else {
+                    reject.execute_function(Some(this), &[]);
+                }
+            });
+        }
     });
 }
 
-#[betterncm_native_api(name = "util.executeJavaScript")]
-#[instrument]
-fn test_func_2(code: String, script_url: String, start_line: ::core::ffi::c_int) {
-    unsafe {
-        let ctx = cef_v8context_get_current_context().as_mut().unwrap();
-        let frame = ctx.get_frame.unwrap()(ctx).as_mut().unwrap();
-
-        let code = CefString::from(code.as_str()).to_raw();
-        let script_url = CefString::from(script_url.as_str()).to_raw();
-
-        frame.execute_java_script.unwrap()(frame, code, script_url, start_line);
-    }
-}
-
 fn init_native_api(ctx: &NativeAPIInitContext) {
-    ctx.define_api(test_func);
-    ctx.define_api(test_func_2);
+    ctx.define_api(internal::get_framework_css);
+    ctx.define_api(util::execute_java_script);
+    ctx.define_api(app::restart);
+    ctx.define_api(app::read_config);
+    ctx.define_api(app::write_config);
+    ctx.define_api(app::reload_ignore_cache);
+    ctx.define_api(app::version);
+    ctx.define_api(app::get_ncm_path);
+    ctx.define_api(app::show_console);
+    ctx.define_api(fs::read_dir);
+    ctx.define_api(fs::read_file);
+    ctx.define_api(fs::read_file_text);
+    ctx.define_api(fs::rename);
+    ctx.define_api(fs::exists);
+    ctx.define_api(fs::write_file);
+    ctx.define_api(fs::write_file_text);
+    ctx.define_api(fs::remove);
+    ctx.define_api(fs::mkdir);
+    ctx.define_api(fs::watch_directory);
 }
 
 pub struct NativeAPIDesc {
@@ -129,7 +161,7 @@ impl NativeAPIInitContext {
 }
 
 #[instrument]
-pub fn setup_native_api(global_this: cef::CefV8Value) {
+pub fn setup_native_api(mut global_this: cef::CefV8Value) {
     if !global_this.has_value_bykey("betterncm_native") {
         info!("正在初始化 MWBNCM 原生 API");
 

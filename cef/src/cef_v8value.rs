@@ -1,9 +1,63 @@
-use std::{error::Error, str::FromStr};
+use std::{
+    error::Error,
+    ops::{Deref, DerefMut},
+    str::FromStr,
+};
 
-use crate::{CefString, CefV8Function};
+use crate::CefString;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CefV8Value(pub(crate) *mut cef_sys::cef_v8value_t);
+
+unsafe impl Send for CefV8Value {}
+
+/// 为了可以通过 [TryFrom::try_from] 特质实现类型检查而作，其余和 [CefV8Value] 并无差异
+#[derive(Debug, Clone)]
+pub struct CefV8Function(CefV8Value);
+
+impl Deref for CefV8Function {
+    type Target = CefV8Value;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for CefV8Function {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+/// 为了可以通过 [TryFrom::try_from] 特质实现类型检查而作，其余和 [CefV8Value] 并无差异
+#[derive(Debug, Clone)]
+pub struct CefV8ArrayBuffer(CefV8Value);
+
+impl Deref for CefV8ArrayBuffer {
+    type Target = CefV8Value;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for CefV8ArrayBuffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl TryInto<Vec<u8>> for CefV8ArrayBuffer {
+    type Error = V8ValueError;
+    fn try_into(self) -> Result<Vec<u8>, Self::Error> {
+        let len = self.get_array_length();
+        let mut array = Vec::with_capacity(len);
+
+        for i in 0..len {
+            array.push(self.get_value_byindex(i as _).try_into()?);
+        }
+
+        Ok(array)
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Undefined;
@@ -16,12 +70,7 @@ pub type CefV8HandlerCallback<E> =
 
 impl CefV8Value {
     pub unsafe fn from_raw(raw: *mut cef_sys::cef_v8value_t) -> Self {
-        assert!(!raw.is_null(), "creating v8 value on null pointer");
-        assert_ne!(
-            cef_sys::cef_currently_on(cef_sys::cef_thread_id_t_TID_RENDERER),
-            0,
-            "creating v8 value on non-renderer thread"
-        );
+        assert!(!raw.is_null(), "传入了值为 NULL 的 cef_v8value_t");
         Self(raw as _)
     }
     pub fn from_function<F: Fn() + 'static>(_func: F) -> Self {
@@ -206,7 +255,7 @@ impl CefV8Value {
     pub fn will_rethrow_exceptions(&self) -> bool {
         unsafe { ((*self.0).will_rethrow_exceptions.unwrap())(self.0) != 0 }
     }
-    pub fn set_rethrow_exceptions(&self, rethrow: ::core::ffi::c_int) -> bool {
+    pub fn set_rethrow_exceptions(&mut self, rethrow: ::core::ffi::c_int) -> bool {
         unsafe { ((*self.0).set_rethrow_exceptions.unwrap())(self.0, rethrow) != 0 }
     }
     pub fn has_value_bykey(&self, key: &str) -> bool {
@@ -238,22 +287,42 @@ impl CefV8Value {
     pub fn get_value_byindex(&self, index: isize) -> Self {
         unsafe { Self::from_raw(((*self.0).get_value_byindex.unwrap())(self.0, index as _) as _) }
     }
-    pub fn set_value_bykey(&self, key: &str, value: Self) -> bool {
+    pub fn set_value_bykey(&mut self, key: &str, value: Self) -> bool {
         unsafe {
             let key = CefString::from(key);
             ((*self.0).set_value_bykey.unwrap())(self.0, key.to_raw(), value.as_raw(), 0) != 0
         }
     }
-    // pub fn set_value_byindex(&self) -> bool {
-    //     unsafe { ((*self.0).set_value_byindex.unwrap())(self.0) }
+    pub fn set_value_byindex(&mut self, index: isize, value: Self) -> bool {
+        unsafe { ((*self.0).set_value_byindex.unwrap())(self.0, index as _, value.to_raw()) != 0 }
+    }
+    // pub fn set_value_byaccessor(&self, index: isize, value: Self) -> bool {
+    //     unsafe { ((*self.0).set_value_byaccessor.unwrap())(self.0, index as _, value.to_raw()) != 0 }
     // }
-    // pub fn set_value_byaccessor(&self) -> bool {
-    //     unsafe { ((*self.0).set_value_byaccessor.unwrap())(self.0) }
-    // }
-    // pub fn get_keys(&self) -> bool {
-    //     unsafe { ((*self.0).get_keys.unwrap())(self.0) }
-    // }
-    pub unsafe fn set_user_data(&self, user_data: *mut cef_sys::cef_base_ref_counted_t) -> bool {
+    pub fn get_keys(&self) -> Vec<String> {
+        unsafe {
+            let mut keys: usize = 0;
+            ((*self.0).get_keys.unwrap())(self.0, &mut keys as *mut _ as _);
+
+            if keys == 0 {
+                vec![]
+            } else {
+                let keys: cef_sys::cef_string_list_t = keys as _;
+                let size = cef_sys::cef_string_map_size(keys);
+                let mut result = Vec::with_capacity(size);
+                for i in 0..size {
+                    let mut str: cef_sys::cef_string_utf16_t = std::mem::zeroed();
+                    cef_sys::cef_string_list_value(keys, i, &mut str);
+                    result.push(CefString::from_raw(&mut str).to_string());
+                }
+                result
+            }
+        }
+    }
+    pub unsafe fn set_user_data(
+        &mut self,
+        user_data: *mut cef_sys::cef_base_ref_counted_t,
+    ) -> bool {
         unsafe { ((*self.0).set_user_data.unwrap())(self.0, user_data) != 0 }
     }
     pub unsafe fn get_user_data(&self) -> *mut cef_sys::cef_base_ref_counted_t {
@@ -280,72 +349,93 @@ impl CefV8Value {
     // pub fn get_function_handler(&self) -> bool {
     //     unsafe { ((*self.0).get_function_handler.unwrap())(self.0) }
     // }
-    pub fn execute_function(&self, this_obj: CefV8Value, arguments: &[CefV8Value]) -> CefV8Value {
-        let arguments = arguments.iter().map(|x| x.0).collect::<Vec<_>>();
+    pub fn execute_function(&self, this_obj: Option<Self>, arguments: &[Self]) -> Option<Self> {
         unsafe {
-            assert!(
-                cef_sys::cef_currently_on(cef_sys::cef_thread_id_t_TID_RENDERER) != 0,
-                "calling v8value function on non-renderer thread"
-            );
-            CefV8Value::from_raw(((*self.0).execute_function.unwrap())(
-                self.0,
-                this_obj.0,
-                arguments.len(),
-                arguments.as_ptr(),
-            ) as _)
+            if cef_sys::cef_currently_on(cef_sys::cef_thread_id_t_TID_RENDERER) == 0 {
+                // TODO: 发出警告
+                None
+            } else {
+                let arguments = arguments.iter().map(|x| x.0).collect::<Vec<_>>();
+                let ret = ((*self.0).execute_function.unwrap())(
+                    self.0,
+                    this_obj.map(|x| x.0).unwrap_or(std::ptr::null_mut()),
+                    arguments.len(),
+                    arguments.as_ptr(),
+                );
+                if ret.is_null() {
+                    // Error
+                    None
+                } else {
+                    Some(Self::from_raw(ret))
+                }
+            }
         }
     }
     // pub fn execute_function_with_context(&self) -> bool {
     //     unsafe { ((*self.0).execute_function_with_context.unwrap())(self.0) }
     // }
+}
 
-    pub fn into_v8function(self) -> CefV8Function {
-        unsafe {
-            assert!(
-                self.is_function(),
-                "transforming non-function v8value into v8function"
-            );
-            CefV8Function::from_raw(self.0)
+pub enum V8ValueError {
+    IncorrectType {
+        required: &'static str,
+        current: &'static str,
+    },
+    NotInV8Context,
+    NotInRendererThread,
+}
+
+impl std::fmt::Debug for V8ValueError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            V8ValueError::IncorrectType { required, current } => {
+                f.write_str("CefV8Value 类型不正确，需要类型 ")?;
+                f.write_str(required)?;
+                f.write_str(" ，提供了 ")?;
+                f.write_str(current)?;
+            }
+            V8ValueError::NotInV8Context => {
+                f.write_str("试图在非 V8Context 上下文环境内创建 V8Value")?;
+            }
+            V8ValueError::NotInRendererThread => {
+                f.write_str("试图在非渲染线程内创建 V8Value")?;
+            }
         }
-    }
-}
-
-pub struct V8ValueTypeError {
-    required: &'static str,
-    current: &'static str,
-}
-
-impl std::fmt::Debug for V8ValueTypeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("CefV8Value 类型不正确，需要类型 ")?;
-        f.write_str(self.required)?;
-        f.write_str(" ，提供了 ")?;
-        f.write_str(self.current)?;
         Ok(())
     }
 }
 
-impl std::fmt::Display for V8ValueTypeError {
+impl std::fmt::Display for V8ValueError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("CefV8Value 类型不正确，需要类型 ")?;
-        f.write_str(self.required)?;
-        f.write_str(" ，提供了 ")?;
-        f.write_str(self.current)?;
+        match self {
+            V8ValueError::IncorrectType { required, current } => {
+                f.write_str("CefV8Value 类型不正确，需要类型 ")?;
+                f.write_str(required)?;
+                f.write_str(" ，提供了 ")?;
+                f.write_str(current)?;
+            }
+            V8ValueError::NotInV8Context => {
+                f.write_str("试图在非 V8Context 上下文环境内创建 V8Value")?;
+            }
+            V8ValueError::NotInRendererThread => {
+                f.write_str("试图在非渲染线程内创建 V8Value")?;
+            }
+        }
         Ok(())
     }
 }
 
-impl Error for V8ValueTypeError {}
+impl Error for V8ValueError {}
 
 macro_rules! impl_try_from_for_number {
     ($for_type:tt, $required_type:ident, $checker:ident, $getter:ident) => {
         impl TryFrom<CefV8Value> for $for_type {
-            type Error = V8ValueTypeError;
+            type Error = V8ValueError;
             fn try_from(value: CefV8Value) -> Result<Self, Self::Error> {
                 if value.$checker() {
                     Ok(value.$getter() as _)
                 } else {
-                    Err(V8ValueTypeError {
+                    Err(V8ValueError::IncorrectType {
                         required: std::stringify!($required_type),
                         current: value.get_js_type(),
                     })
@@ -354,14 +444,14 @@ macro_rules! impl_try_from_for_number {
         }
 
         impl TryFrom<CefV8Value> for Option<$for_type> {
-            type Error = V8ValueTypeError;
+            type Error = V8ValueError;
             fn try_from(value: CefV8Value) -> Result<Self, Self::Error> {
                 if value.$checker() {
                     Ok(Some(value.$getter() as _))
                 } else if value.is_null() || value.is_undefined() {
                     Ok(None)
                 } else {
-                    Err(V8ValueTypeError {
+                    Err(V8ValueError::IncorrectType {
                         required: std::stringify!($required_type),
                         current: value.get_js_type(),
                     })
@@ -373,9 +463,18 @@ macro_rules! impl_try_from_for_number {
 
 macro_rules! impl_into_for_number {
     ($for_type:tt, $creator:ident) => {
-        impl From<$for_type> for CefV8Value {
-            fn from(value: $for_type) -> Self {
-                unsafe { Self::from_raw(cef_sys::$creator(value as _) as _) }
+        impl TryFrom<$for_type> for CefV8Value {
+            type Error = V8ValueError;
+            fn try_from(value: $for_type) -> Result<Self, Self::Error> {
+                unsafe {
+                    if cef_sys::cef_currently_on(cef_sys::cef_thread_id_t_TID_RENDERER) == 0 {
+                        Err(V8ValueError::NotInRendererThread)
+                    } else if cef_sys::cef_v8context_in_context() == 0 {
+                        Err(V8ValueError::NotInV8Context)
+                    } else {
+                        Ok(Self::from_raw(cef_sys::$creator(value as _) as _))
+                    }
+                }
             }
         }
     };
@@ -415,21 +514,27 @@ impl_into_for_number!(isize, cef_v8value_create_int);
 impl_into_for_number!(f32, cef_v8value_create_double);
 impl_into_for_number!(f64, cef_v8value_create_double);
 
-impl ToOwned for CefV8Value {
-    type Owned = Self;
-
-    fn to_owned(&self) -> Self::Owned {
-        Self(self.0)
+impl TryFrom<CefV8Value> for bool {
+    type Error = V8ValueError;
+    fn try_from(value: CefV8Value) -> Result<Self, Self::Error> {
+        if value.is_bool() {
+            Ok(value.get_bool_value())
+        } else {
+            Err(V8ValueError::IncorrectType {
+                required: "boolean",
+                current: value.get_js_type(),
+            })
+        }
     }
 }
 
 impl TryFrom<CefV8Value> for String {
-    type Error = V8ValueTypeError;
+    type Error = V8ValueError;
     fn try_from(value: CefV8Value) -> Result<Self, Self::Error> {
         if value.is_string() {
             Ok(value.get_string_value().to_string())
         } else {
-            Err(V8ValueTypeError {
+            Err(V8ValueError::IncorrectType {
                 required: "string",
                 current: value.get_js_type(),
             })
@@ -438,12 +543,12 @@ impl TryFrom<CefV8Value> for String {
 }
 
 impl TryFrom<CefV8Value> for CefV8Function {
-    type Error = V8ValueTypeError;
+    type Error = V8ValueError;
     fn try_from(value: CefV8Value) -> Result<Self, Self::Error> {
-        if value.is_string() {
-            Ok(value.into_v8function())
+        if value.is_function() {
+            Ok(CefV8Function(value))
         } else {
-            Err(V8ValueTypeError {
+            Err(V8ValueError::IncorrectType {
                 required: "function",
                 current: value.get_js_type(),
             })
@@ -451,43 +556,160 @@ impl TryFrom<CefV8Value> for CefV8Function {
     }
 }
 
-impl From<()> for CefV8Value {
-    fn from(_: ()) -> CefV8Value {
-        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_undefined() as _) }
-    }
-}
-
-impl<T: Into<CefV8Value>> From<Option<T>> for CefV8Value {
-    fn from(v: Option<T>) -> CefV8Value {
-        if let Some(v) = v {
-            v.into()
-        } else {
-            unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_null() as _) }
-        }
-    }
-}
-
-impl From<bool> for CefV8Value {
-    fn from(value: bool) -> CefV8Value {
+impl TryFrom<()> for CefV8Value {
+    type Error = V8ValueError;
+    fn try_from(_: ()) -> Result<Self, Self::Error> {
         unsafe {
-            CefV8Value::from_raw(cef_sys::cef_v8value_create_bool(if value { 1 } else { 0 }) as _)
+            if cef_sys::cef_currently_on(cef_sys::cef_thread_id_t_TID_RENDERER) == 0 {
+                Err(V8ValueError::NotInRendererThread)
+            } else if cef_sys::cef_v8context_in_context() == 0 {
+                Err(V8ValueError::NotInV8Context)
+            } else {
+                Ok(Self::from_raw(cef_sys::cef_v8value_create_undefined()))
+            }
         }
     }
 }
 
-impl From<CefString> for CefV8Value {
-    fn from(value: CefString) -> CefV8Value {
-        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_string(value.as_raw()) as _) }
-    }
-}
-
-impl From<&str> for CefV8Value {
-    fn from(s: &str) -> CefV8Value {
+impl<T> TryFrom<CefV8Value> for Vec<T>
+where
+    T: TryFrom<CefV8Value>,
+    V8ValueError: From<T::Error>,
+{
+    type Error = V8ValueError;
+    fn try_from(value: CefV8Value) -> Result<Self, Self::Error> {
         unsafe {
-            CefV8Value::from_raw(cef_sys::cef_v8value_create_string(
-                CefString::from(s).to_raw(),
-            ))
+            if cef_sys::cef_currently_on(cef_sys::cef_thread_id_t_TID_RENDERER) == 0 {
+                Err(V8ValueError::NotInRendererThread)
+            } else if cef_sys::cef_v8context_in_context() == 0 {
+                Err(V8ValueError::NotInV8Context)
+            } else if !value.is_array() {
+                Err(V8ValueError::IncorrectType {
+                    required: "array",
+                    current: value.get_js_type(),
+                })
+            } else {
+                let len = value.get_array_length();
+                let mut array = Vec::with_capacity(len);
+
+                for i in 0..len {
+                    array.push(value.get_value_byindex(i as _).try_into()?);
+                }
+
+                Ok(array)
+            }
         }
+    }
+}
+
+impl TryFrom<CefV8Value> for CefV8ArrayBuffer {
+    type Error = V8ValueError;
+    fn try_from(value: CefV8Value) -> Result<Self, Self::Error> {
+        unsafe {
+            if cef_sys::cef_currently_on(cef_sys::cef_thread_id_t_TID_RENDERER) == 0 {
+                Err(V8ValueError::NotInRendererThread)
+            } else if cef_sys::cef_v8context_in_context() == 0 {
+                Err(V8ValueError::NotInV8Context)
+            } else if !value.is_array_buffer() {
+                Err(V8ValueError::IncorrectType {
+                    required: "array",
+                    current: value.get_js_type(),
+                })
+            } else {
+                Ok(CefV8ArrayBuffer(value))
+            }
+        }
+    }
+}
+
+impl<T: Into<CefV8Value>> TryFrom<Option<T>> for CefV8Value {
+    type Error = V8ValueError;
+    fn try_from(v: Option<T>) -> Result<Self, Self::Error> {
+        unsafe {
+            if cef_sys::cef_currently_on(cef_sys::cef_thread_id_t_TID_RENDERER) == 0 {
+                Err(V8ValueError::NotInRendererThread)
+            } else if cef_sys::cef_v8context_in_context() == 0 {
+                Err(V8ValueError::NotInV8Context)
+            } else if let Some(v) = v {
+                Ok(v.into())
+            } else {
+                Ok(CefV8Value::from_raw(cef_sys::cef_v8value_create_null() as _))
+            }
+        }
+    }
+}
+
+impl TryFrom<bool> for CefV8Value {
+    type Error = V8ValueError;
+    fn try_from(value: bool) -> Result<Self, Self::Error> {
+        unsafe {
+            if cef_sys::cef_currently_on(cef_sys::cef_thread_id_t_TID_RENDERER) == 0 {
+                Err(V8ValueError::NotInRendererThread)
+            } else if cef_sys::cef_v8context_in_context() == 0 {
+                Err(V8ValueError::NotInV8Context)
+            } else {
+                Ok(CefV8Value::from_raw(
+                    cef_sys::cef_v8value_create_bool(if value { 1 } else { 0 }) as _,
+                ))
+            }
+        }
+    }
+}
+
+impl TryFrom<CefString> for CefV8Value {
+    type Error = V8ValueError;
+    fn try_from(value: CefString) -> Result<Self, Self::Error> {
+        unsafe {
+            if cef_sys::cef_currently_on(cef_sys::cef_thread_id_t_TID_RENDERER) == 0 {
+                Err(V8ValueError::NotInRendererThread)
+            } else if cef_sys::cef_v8context_in_context() == 0 {
+                Err(V8ValueError::NotInV8Context)
+            } else {
+                Ok(CefV8Value::from_raw(cef_sys::cef_v8value_create_string(
+                    value.to_raw(),
+                )))
+            }
+        }
+    }
+}
+
+impl<T> TryFrom<Vec<T>> for CefV8Value
+where
+    T: TryInto<CefV8Value>,
+    V8ValueError: From<T::Error>,
+{
+    type Error = V8ValueError;
+    fn try_from(value: Vec<T>) -> Result<Self, Self::Error> {
+        unsafe {
+            if cef_sys::cef_currently_on(cef_sys::cef_thread_id_t_TID_RENDERER) == 0 {
+                Err(V8ValueError::NotInRendererThread)
+            } else if cef_sys::cef_v8context_in_context() == 0 {
+                Err(V8ValueError::NotInV8Context)
+            } else {
+                let mut array =
+                    CefV8Value::from_raw(cef_sys::cef_v8value_create_array(value.len() as _));
+
+                for (i, v) in value.into_iter().enumerate() {
+                    array.set_value_byindex(i as _, v.try_into()?);
+                }
+
+                Ok(array)
+            }
+        }
+    }
+}
+
+impl TryFrom<&str> for CefV8Value {
+    type Error = V8ValueError;
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        CefString::from(s).try_into()
+    }
+}
+
+impl TryFrom<String> for CefV8Value {
+    type Error = V8ValueError;
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        s.as_str().try_into()
     }
 }
 

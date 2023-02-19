@@ -4,7 +4,7 @@ use std::fmt::{Debug, Display};
 pub struct CefString(*mut cef_sys::cef_string_t);
 
 impl CefString {
-    pub unsafe fn from_raw(raw: *mut ::core::ffi::c_void) -> Self {
+    pub unsafe fn from_raw(raw: *mut cef_sys::cef_string_t) -> Self {
         Self(raw as _)
     }
     pub unsafe fn as_raw(&self) -> *mut cef_sys::cef_string_t {
@@ -92,5 +92,11 @@ impl From<&str> for CefString {
 
             Self::from_raw(result as *mut _ as _)
         }
+    }
+}
+
+impl From<String> for CefString {
+    fn from(value: String) -> Self {
+        value.as_str().into()
     }
 }

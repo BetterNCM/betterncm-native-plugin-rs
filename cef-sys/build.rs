@@ -4,19 +4,19 @@ use bindgen::*;
 
 fn main() {
     let dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let binding = Path::new(&dir).join("../BetterNCM/src/3rd/libcef");
+    let binding = Path::new(&dir).join("../libcef");
     let libcef_path = binding.to_string_lossy();
     println!("{libcef_path}");
     println!("cargo:rustc-link-search={libcef_path}");
 
-    let files = std::fs::read_dir("../BetterNCM/src/3rd/libcef/include")
+    let files = std::fs::read_dir("../libcef/include")
         .unwrap()
         .map(|x| x.unwrap())
         .filter(|x| x.path().is_file())
         .map(|x| format!("#include \"include/{}\"", x.file_name().to_string_lossy()))
         .collect::<Vec<_>>();
 
-    let capi_files = std::fs::read_dir("../BetterNCM/src/3rd/libcef/include/capi")
+    let capi_files = std::fs::read_dir("../libcef/include/capi")
         .unwrap()
         .map(|x| x.unwrap())
         .filter(|x| x.path().is_file())
@@ -47,7 +47,7 @@ fn main() {
         .rustfmt_bindings(true)
         .generate_inline_functions(true)
         .generate_comments(true)
-        .clang_arg("-I../BetterNCM/src/3rd/libcef")
+        .clang_arg("-I../libcef")
         .clang_arg("-fparse-all-comments")
         .allowlist_file("cef_.*")
         .allowlist_type("Cef.*")
