@@ -127,34 +127,34 @@ mod hooked_funcs {
         error!("AlphaBlend 函数没有被正确替换！");
         #[cfg(not(debug_assertions))]
         println!("AlphaBlend 函数没有被正确替换！");
-        panic!();
+        panic!("AlphaBlend 函数没有被正确替换！");
     }
     #[no_mangle]
     pub unsafe extern "system" fn DllInitialize() -> ! {
         error!("DllInitialize 函数没有被正确替换！");
         #[cfg(not(debug_assertions))]
         println!("DllInitialize 函数没有被正确替换！");
-        panic!();
+        panic!("DllInitialize 函数没有被正确替换！");
     }
     #[no_mangle]
     pub unsafe extern "system" fn GradientFill() -> ! {
         error!("GradientFill 函数没有被正确替换！");
         #[cfg(not(debug_assertions))]
         println!("GradientFill 函数没有被正确替换！");
-        panic!();
+        panic!("GradientFill 函数没有被正确替换！");
     }
     #[no_mangle]
     pub unsafe extern "system" fn TransparentBlt() -> ! {
         error!("TransparentBlt 函数没有被正确替换！");
         #[cfg(not(debug_assertions))]
         println!("TransparentBlt 函数没有被正确替换！");
-        panic!();
+        panic!("TransparentBlt 函数没有被正确替换！");
     }
     #[no_mangle]
     pub unsafe extern "system" fn vSetDdrawflag() -> ! {
         error!("vSetDdrawflag 函数没有被正确替换！");
         #[cfg(not(debug_assertions))]
         println!("vSetDdrawflag 函数没有被正确替换！");
-        panic!();
+        panic!("vSetDdrawflag 函数没有被正确替换！");
     }
 }

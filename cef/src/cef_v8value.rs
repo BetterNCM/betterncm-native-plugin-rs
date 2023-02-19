@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{error::Error, str::FromStr};
 
 use crate::{CefString, CefV8Function};
 
@@ -143,6 +143,35 @@ impl CefV8Value {
         }
         unsafe { ((*self.0).is_same.unwrap())(self.0, other.0) != 0 }
     }
+    pub fn get_js_type(&self) -> &'static str {
+        if self.is_bool() {
+            "boolean"
+        } else if self.is_function() {
+            "function"
+        } else if self.is_undefined() {
+            "undefined"
+        } else if self.is_null() {
+            "null"
+        } else if self.is_string() {
+            "string"
+        } else if self.is_double() {
+            "double"
+        } else if self.is_int() {
+            "int"
+        } else if self.is_uint() {
+            "uint"
+        } else if self.is_date() {
+            "date"
+        } else if self.is_array_buffer() {
+            "arraybuffer"
+        } else if self.is_array() {
+            "array"
+        } else if self.is_object() {
+            "object"
+        } else {
+            "unknown"
+        }
+    }
     pub fn get_bool_value(&self) -> bool {
         unsafe { ((*self.0).get_bool_value.unwrap())(self.0) != 0 }
     }
@@ -281,6 +310,111 @@ impl CefV8Value {
     }
 }
 
+pub struct V8ValueTypeError {
+    required: &'static str,
+    current: &'static str,
+}
+
+impl std::fmt::Debug for V8ValueTypeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CefV8Value 类型不正确，需要类型 ")?;
+        f.write_str(self.required)?;
+        f.write_str(" ，提供了 ")?;
+        f.write_str(self.current)?;
+        Ok(())
+    }
+}
+
+impl std::fmt::Display for V8ValueTypeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CefV8Value 类型不正确，需要类型 ")?;
+        f.write_str(self.required)?;
+        f.write_str(" ，提供了 ")?;
+        f.write_str(self.current)?;
+        Ok(())
+    }
+}
+
+impl Error for V8ValueTypeError {}
+
+macro_rules! impl_try_from_for_number {
+    ($for_type:tt, $required_type:ident, $checker:ident, $getter:ident) => {
+        impl TryFrom<CefV8Value> for $for_type {
+            type Error = V8ValueTypeError;
+            fn try_from(value: CefV8Value) -> Result<Self, Self::Error> {
+                if value.$checker() {
+                    Ok(value.$getter() as _)
+                } else {
+                    Err(V8ValueTypeError {
+                        required: std::stringify!($required_type),
+                        current: value.get_js_type(),
+                    })
+                }
+            }
+        }
+
+        impl TryFrom<CefV8Value> for Option<$for_type> {
+            type Error = V8ValueTypeError;
+            fn try_from(value: CefV8Value) -> Result<Self, Self::Error> {
+                if value.$checker() {
+                    Ok(Some(value.$getter() as _))
+                } else if value.is_null() || value.is_undefined() {
+                    Ok(None)
+                } else {
+                    Err(V8ValueTypeError {
+                        required: std::stringify!($required_type),
+                        current: value.get_js_type(),
+                    })
+                }
+            }
+        }
+    };
+}
+
+macro_rules! impl_into_for_number {
+    ($for_type:tt, $creator:ident) => {
+        impl From<$for_type> for CefV8Value {
+            fn from(value: $for_type) -> Self {
+                unsafe { Self::from_raw(cef_sys::$creator(value as _) as _) }
+            }
+        }
+    };
+}
+
+impl_try_from_for_number!(u8, uint, is_uint, get_uint_value);
+impl_try_from_for_number!(u16, uint, is_uint, get_uint_value);
+impl_try_from_for_number!(u32, uint, is_uint, get_uint_value);
+impl_try_from_for_number!(u64, uint, is_uint, get_uint_value);
+impl_try_from_for_number!(u128, uint, is_uint, get_uint_value);
+impl_try_from_for_number!(usize, uint, is_uint, get_uint_value);
+
+impl_try_from_for_number!(i8, int, is_int, get_int_value);
+impl_try_from_for_number!(i16, int, is_int, get_int_value);
+impl_try_from_for_number!(i32, int, is_int, get_int_value);
+impl_try_from_for_number!(i64, int, is_int, get_int_value);
+impl_try_from_for_number!(i128, int, is_int, get_int_value);
+impl_try_from_for_number!(isize, int, is_int, get_int_value);
+
+impl_try_from_for_number!(f32, double, is_double, get_double_value);
+impl_try_from_for_number!(f64, double, is_double, get_double_value);
+
+impl_into_for_number!(u8, cef_v8value_create_uint);
+impl_into_for_number!(u16, cef_v8value_create_uint);
+impl_into_for_number!(u32, cef_v8value_create_uint);
+impl_into_for_number!(u64, cef_v8value_create_uint);
+impl_into_for_number!(u128, cef_v8value_create_uint);
+impl_into_for_number!(usize, cef_v8value_create_uint);
+
+impl_into_for_number!(i8, cef_v8value_create_int);
+impl_into_for_number!(i16, cef_v8value_create_int);
+impl_into_for_number!(i32, cef_v8value_create_int);
+impl_into_for_number!(i64, cef_v8value_create_int);
+impl_into_for_number!(i128, cef_v8value_create_int);
+impl_into_for_number!(isize, cef_v8value_create_int);
+
+impl_into_for_number!(f32, cef_v8value_create_double);
+impl_into_for_number!(f64, cef_v8value_create_double);
+
 impl ToOwned for CefV8Value {
     type Owned = Self;
 
@@ -289,99 +423,31 @@ impl ToOwned for CefV8Value {
     }
 }
 
-impl From<CefV8Value> for u8 {
-    fn from(value: CefV8Value) -> Self {
-        value.get_uint_value() as _
+impl TryFrom<CefV8Value> for String {
+    type Error = V8ValueTypeError;
+    fn try_from(value: CefV8Value) -> Result<Self, Self::Error> {
+        if value.is_string() {
+            Ok(value.get_string_value().to_string())
+        } else {
+            Err(V8ValueTypeError {
+                required: "string",
+                current: value.get_js_type(),
+            })
+        }
     }
 }
 
-impl From<CefV8Value> for u16 {
-    fn from(value: CefV8Value) -> Self {
-        value.get_uint_value() as _
-    }
-}
-
-impl From<CefV8Value> for u32 {
-    fn from(value: CefV8Value) -> Self {
-        value.get_uint_value() as _
-    }
-}
-
-impl From<CefV8Value> for u64 {
-    fn from(value: CefV8Value) -> Self {
-        value.get_uint_value() as _
-    }
-}
-
-impl From<CefV8Value> for u128 {
-    fn from(value: CefV8Value) -> Self {
-        value.get_uint_value() as _
-    }
-}
-
-impl From<CefV8Value> for usize {
-    fn from(value: CefV8Value) -> Self {
-        value.get_uint_value() as _
-    }
-}
-
-impl From<CefV8Value> for i8 {
-    fn from(value: CefV8Value) -> Self {
-        value.get_uint_value() as _
-    }
-}
-
-impl From<CefV8Value> for i16 {
-    fn from(value: CefV8Value) -> Self {
-        value.get_int_value() as _
-    }
-}
-
-impl From<CefV8Value> for i32 {
-    fn from(value: CefV8Value) -> Self {
-        value.get_int_value() as _
-    }
-}
-
-impl From<CefV8Value> for i64 {
-    fn from(value: CefV8Value) -> Self {
-        value.get_int_value() as _
-    }
-}
-
-impl From<CefV8Value> for i128 {
-    fn from(value: CefV8Value) -> Self {
-        value.get_int_value() as _
-    }
-}
-
-impl From<CefV8Value> for isize {
-    fn from(value: CefV8Value) -> isize {
-        value.get_int_value() as _
-    }
-}
-
-impl From<CefV8Value> for f32 {
-    fn from(value: CefV8Value) -> f32 {
-        value.get_double_value() as _
-    }
-}
-
-impl From<CefV8Value> for f64 {
-    fn from(value: CefV8Value) -> f64 {
-        value.get_double_value() as _
-    }
-}
-
-impl From<CefV8Value> for String {
-    fn from(value: CefV8Value) -> String {
-        value.get_string_value().to_string()
-    }
-}
-
-impl From<CefV8Value> for CefV8Function {
-    fn from(value: CefV8Value) -> CefV8Function {
-        value.into_v8function()
+impl TryFrom<CefV8Value> for CefV8Function {
+    type Error = V8ValueTypeError;
+    fn try_from(value: CefV8Value) -> Result<Self, Self::Error> {
+        if value.is_string() {
+            Ok(value.into_v8function())
+        } else {
+            Err(V8ValueTypeError {
+                required: "function",
+                current: value.get_js_type(),
+            })
+        }
     }
 }
 
@@ -398,64 +464,6 @@ impl<T: Into<CefV8Value>> From<Option<T>> for CefV8Value {
         } else {
             unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_null() as _) }
         }
-    }
-}
-
-impl From<u8> for CefV8Value {
-    fn from(value: u8) -> CefV8Value {
-        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_uint(value as _) as _) }
-    }
-}
-
-impl From<u16> for CefV8Value {
-    fn from(value: u16) -> CefV8Value {
-        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_uint(value as _) as _) }
-    }
-}
-impl From<u32> for CefV8Value {
-    fn from(value: u32) -> CefV8Value {
-        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_uint(value as _) as _) }
-    }
-}
-
-impl From<usize> for CefV8Value {
-    fn from(value: usize) -> CefV8Value {
-        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_uint(value as _) as _) }
-    }
-}
-
-impl From<i8> for CefV8Value {
-    fn from(value: i8) -> CefV8Value {
-        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_int(value as _) as _) }
-    }
-}
-
-impl From<i16> for CefV8Value {
-    fn from(value: i16) -> CefV8Value {
-        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_int(value as _) as _) }
-    }
-}
-impl From<i32> for CefV8Value {
-    fn from(value: i32) -> CefV8Value {
-        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_int(value as _) as _) }
-    }
-}
-
-impl From<isize> for CefV8Value {
-    fn from(value: isize) -> CefV8Value {
-        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_int(value as _) as _) }
-    }
-}
-
-impl From<f32> for CefV8Value {
-    fn from(value: f32) -> CefV8Value {
-        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_double(value as _) as _) }
-    }
-}
-
-impl From<f64> for CefV8Value {
-    fn from(value: f64) -> CefV8Value {
-        unsafe { CefV8Value::from_raw(cef_sys::cef_v8value_create_double(value as _) as _) }
     }
 }
 

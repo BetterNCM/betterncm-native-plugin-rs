@@ -3,6 +3,7 @@ use cef::*;
 use cef_sys::cef_v8context_get_current_context;
 use tracing::*;
 
+mod fs;
 mod scheme;
 
 #[betterncm_native_api(name = "test.func")]
@@ -94,7 +95,7 @@ impl NativeAPIInitContext {
                         *retval = value.as_raw();
                     }
                     Err(err) => {
-                        let err = format!("{:#?}", err);
+                        let err = format!("{:?}", err);
                         *exception = *CefString::from(err.as_str()).to_raw();
                     }
                 }
