@@ -11,26 +11,17 @@ import { app } from "./app";
 import { ncm } from "./ncm";
 import { tests } from "./tests";
 import { utils } from "./utils";
-import { betterncmFetch } from "./base"
+import { betterncmFetch } from "./base";
+import { splashScreen } from "../loader";
 
 /**
  * 包含加载动画的重载
  */
 function reload(): void {
-	const loadingMask = document.getElementById("loadingMask")
-	if (!loadingMask) {
-		betterncm_native.app.reloadIgnoreCache();
-		return;
-	}
-	const anim = loadingMask.animate([{ opacity: 0 }, { opacity: 1 }], {
-		duration: 300,
-		fill: "forwards",
-		easing: "cubic-bezier(0.42, 0, 0.58, 1)",
-	});
-	anim.commitStyles();
-
-	anim.addEventListener("finish", (_) => {
-		betterncm_native.app.reloadIgnoreCache();
+	splashScreen.setSplashScreenProgress(0);
+	splashScreen.setSplashScreenText("正在重载");
+	splashScreen.showSplashScreen().then(() => {
+		betterncm_native.app.restart();
 	});
 }
 
@@ -41,7 +32,7 @@ const BetterNCM = {
 	utils,
 	tests,
 	reload,
-	betterncmFetch
+	betterncmFetch,
 };
 
 export { fs, app, ncm, utils, tests, reload };

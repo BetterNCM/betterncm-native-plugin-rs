@@ -7,28 +7,7 @@ pub fn on_test_url_hijack(url: &str) -> bool {
     false
 }
 
-const SPLASH_SCREEN_HTML: &str = "<div \
-id=\"loadingMask\"\
-style=\"\
-  position: absolute;\
-  inset: 0px;\
-  background: linear-gradient(54deg, rgb(49, 16, 37), rgb(25, 37, 64));\
-  z-index: 1000;\
-  display: flex;\
-  justify-content: center;\
-  align-items: center;\
-  pointer-events: none;\
-  opacity: 1;\
-\"\
->\
-<div>\
-  <svg fill=\"#ffffffcc\">\
-    <use \
-      xlink:href=\"orpheus://orpheus/style/res/svg/topbar.sp.svg#logo_white\"\
-    ></use>\
-  </svg>\
-</div>\
-</div>";
+const SPLASH_SCREEN_HTML: &str = include_str!("../resources/splash-screen.html");
 
 pub fn on_process_url_data(url: &str, data: Vec<u8>) -> Vec<u8> {
     if url.starts_with("orpheus://orpheus/pub/app.html") {

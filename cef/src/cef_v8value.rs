@@ -556,6 +556,17 @@ impl TryFrom<CefV8Value> for CefV8Function {
     }
 }
 
+impl TryFrom<CefV8Value> for Option<CefV8Function> {
+    type Error = V8ValueError;
+    fn try_from(value: CefV8Value) -> Result<Self, Self::Error> {
+        if value.is_function() {
+            Ok(Some(CefV8Function(value)))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 impl TryFrom<()> for CefV8Value {
     type Error = V8ValueError;
     fn try_from(_: ()) -> Result<Self, Self::Error> {
@@ -622,7 +633,11 @@ impl TryFrom<CefV8Value> for CefV8ArrayBuffer {
     }
 }
 
-impl<T: Into<CefV8Value>> TryFrom<Option<T>> for CefV8Value {
+impl<T> TryFrom<Option<T>> for CefV8Value
+where
+    T: TryInto<CefV8Value>,
+    V8ValueError: From<T::Error>,
+{
     type Error = V8ValueError;
     fn try_from(v: Option<T>) -> Result<Self, Self::Error> {
         unsafe {
@@ -631,7 +646,7 @@ impl<T: Into<CefV8Value>> TryFrom<Option<T>> for CefV8Value {
             } else if cef_sys::cef_v8context_in_context() == 0 {
                 Err(V8ValueError::NotInV8Context)
             } else if let Some(v) = v {
-                Ok(v.into())
+                Ok(v.try_into()?)
             } else {
                 Ok(CefV8Value::from_raw(cef_sys::cef_v8value_create_null() as _))
             }

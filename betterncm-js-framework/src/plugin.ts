@@ -32,8 +32,8 @@ export interface PluginManifest {
 	hijacks: {
 		[versionRange: string]: {
 			[matchUrlPath: string]:
-			| HijackReplaceOrRegexOperation
-			| HijackAppendOrPrependOperation;
+				| HijackReplaceOrRegexOperation
+				| HijackAppendOrPrependOperation;
 		};
 	};
 }
@@ -146,7 +146,7 @@ export class NCMInjectPlugin extends EventTarget {
 				localStorage.getItem(`config.betterncm.${this.manifest.slug}`) || "{}",
 			);
 			if (config[key] !== undefined) return config[key];
-		} catch { }
+		} catch {}
 		return defaultValue;
 	}
 	setConfig<T>(key: string, value: T) {

@@ -2,7 +2,11 @@ import { disableSafeMode, getLoadError } from "../../loader";
 import { Button } from "./button";
 
 export const SafeModeInfo: React.FC = () => {
-	const loadError = React.useMemo(getLoadError, []);
+	const [loadError, setLoadError] = React.useState("");
+
+	React.useEffect(() => {
+		getLoadError().then(setLoadError);
+	}, []);
 
 	return (
 		<div className="v-scroll">

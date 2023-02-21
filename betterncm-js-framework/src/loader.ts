@@ -10,6 +10,66 @@ const LOAD_ERROR_KEY = "betterncm.loaderror";
 const CPP_SIDE_INJECT_DISABLE_KEY =
 	"cc.microblock.betterncm.cpp_side_inject_feature_disabled";
 
+export namespace splashScreen {
+	export function hideSplashScreen() {
+		const el = document.getElementById("bncm-splash-screen");
+		if (el) {
+			const anim = el.animate(
+				[{ opacity: 1 }, { opacity: 0, display: "none" }],
+				{
+					duration: 300,
+					fill: "forwards",
+					easing: "cubic-bezier(0.42,0,0.58,1)",
+				},
+			);
+			anim.commitStyles();
+		}
+	}
+	export function showSplashScreen(): Promise<void> {
+		return new Promise((resolve) => {
+			const el = document.getElementById("bncm-splash-screen");
+			if (!el) {
+				return resolve();
+			}
+
+			const anim = el.animate([{ opacity: 0 }, { opacity: 1 }], {
+				duration: 300,
+				fill: "forwards",
+				easing: "cubic-bezier(0.42, 0, 0.58, 1)",
+			});
+
+			anim.addEventListener(
+				"finish",
+				(_) => {
+					resolve();
+				},
+				{
+					once: true,
+				},
+			);
+
+			anim.commitStyles();
+		});
+	}
+	export function setSplashScreenText(text: string) {
+		const el = document.getElementById("bncm-splash-screen-text");
+		if (el) {
+			el.innerText = text;
+		}
+	}
+	export function setSplashScreenProgress(progress: number) {
+		const el = document.getElementById("bncm-splash-screen-progress");
+		if (el) {
+			if (progress === 0) {
+				el.style.display = "none";
+			} else {
+				el.style.display = "";
+			}
+			el.style.width = `${Math.max(0, Math.min(100, progress * 100))}%`;
+		}
+	}
+}
+
 /**
  * 禁用安全模式，将会在下一次重载生效
  *
@@ -19,8 +79,8 @@ const CPP_SIDE_INJECT_DISABLE_KEY =
  */
 export async function disableSafeMode() {
 	await BetterNCM.app.writeConfig(CPP_SIDE_INJECT_DISABLE_KEY, "false");
-	localStorage.removeItem(SAFE_MODE_KEY);
-	localStorage.removeItem(LOAD_ERROR_KEY);
+	await BetterNCM.app.writeConfig(SAFE_MODE_KEY, "false");
+	await BetterNCM.app.writeConfig(LOAD_ERROR_KEY, "");
 }
 
 export function genRandomString(length: number) {
@@ -43,7 +103,7 @@ export function genRandomString(length: number) {
  */
 export async function enableSafeMode() {
 	await BetterNCM.app.writeConfig(CPP_SIDE_INJECT_DISABLE_KEY, "true");
-	localStorage.setItem(SAFE_MODE_KEY, "true");
+	await BetterNCM.app.writeConfig(SAFE_MODE_KEY, "true");
 }
 
 export class PluginLoadError extends Error {
@@ -71,9 +131,11 @@ export class DependencyResolveError extends Error {
 	}
 }
 
-export const isSafeMode = () => localStorage.getItem(SAFE_MODE_KEY) === "true";
+export const isSafeMode = () =>
+	BetterNCM.app.readConfig(SAFE_MODE_KEY, "false").then((v) => v === "true");
 
-export const getLoadError = () => localStorage.getItem(LOAD_ERROR_KEY) || "";
+export const getLoadError = () =>
+	BetterNCM.app.readConfig(LOAD_ERROR_KEY, "").then((v) => v || "");
 
 function sortPlugins(plugins: NCMPlugin[]) {
 	class Graph {
@@ -136,15 +198,13 @@ function sortPlugins(plugins: NCMPlugin[]) {
 }
 
 async function loadPlugins() {
-	if (isSafeMode()) {
+	if (await isSafeMode()) {
 		window.loadedPlugins = loadedPlugins;
 		return;
 	}
 
 	const debouncedReload = BetterNCM.utils.debounce(BetterNCM.reload, 1000);
 
-	// rome-ignore lint/suspicious/noExplicitAny: AsyncFunction 并不暴露成类，需要手动获取
-	const AsyncFunction = async function () {}.constructor as any;
 	const pageMap = {
 		"/pub/app.html": "Main",
 	};
@@ -178,13 +238,18 @@ async function loadPlugins() {
 
 			if (filePath.endsWith(".js")) {
 				const plugin = new NCMInjectPlugin(mainPlugin, filePath);
-				const pluginFunction = new Function("plugin", `return (async function ${filePath.replaceAll("-", "_").replaceAll(/[^a-zA-Z0-9_$]/g, "")}(){${code}})();`);
+				const pluginFunction = new Function(
+					"plugin",
+					`return (async function ${filePath
+						.replaceAll(/[/\\\.]/g, "_")
+						.replaceAll("-", "_")
+						.replaceAll(/[^a-zA-Z0-9_$]/g, "")}(){${code}})();`,
+				);
 				// genRandomString
 				Object.defineProperty(pluginFunction, "name", {
 					value: filePath,
-					configurable: true
-				})
-				console.log(pluginFunction);
+					configurable: true,
+				});
 				const loadingPromise = pluginFunction.call(
 					loadedPlugins[manifest.slug],
 					plugin,
@@ -229,6 +294,9 @@ async function loadPlugins() {
 
 	window.loadedPlugins = loadedPlugins;
 
+	splashScreen.setSplashScreenText("正在检索插件");
+	splashScreen.setSplashScreenProgress(0);
+
 	const pluginPaths = await BetterNCM.fs.readDir("./plugins_runtime");
 
 	let plugins: NCMPlugin[] = [];
@@ -251,34 +319,52 @@ async function loadPlugins() {
 		}
 	};
 
+	splashScreen.setSplashScreenText("正在确认插件加载顺序");
+	splashScreen.setSplashScreenProgress(0);
 	plugins = sortPlugins(plugins) as NCMPlugin[];
 
 	const loadThreads: Promise<void>[] = [];
 	for (const path of pluginPaths)
 		loadThreads.push(loadPluginByPath(path, false));
 
+	splashScreen.setSplashScreenText("正在检索开发插件");
+	splashScreen.setSplashScreenProgress(0);
 	if (betterncm_native.fs.exists("./plugins_dev")) {
 		const devPluginPaths = await BetterNCM.fs.readDir("./plugins_dev");
-		for (const path of devPluginPaths) await loadPluginByPath(path, true);
+		for (const path of devPluginPaths) {
+			splashScreen.setSplashScreenText(`正在加载开发插件 ${path}`);
+			await loadPluginByPath(path, true);
+		}
 	}
 
 	await Promise.all(loadThreads);
-	
+
+	let i = 0;
 	for (const plugin of plugins) {
 		if (!(plugin.manifest.slug in loadedPlugins)) {
 			loadedPlugins[plugin.manifest.slug] = plugin;
 			console.log("正在加载插件", plugin.manifest.slug);
+			splashScreen.setSplashScreenText(
+				`正在加载插件 ${plugin.manifest.name} (${i++}/${plugins.length})`,
+			);
+			splashScreen.setSplashScreenProgress(i / plugins.length);
+			const startTime = Date.now();
 			await loadPlugin(plugin);
+			const endTime = Date.now() - startTime;
+			console.log("插件加载完成", plugin.manifest.slug, "用时", `${endTime}ms`);
 		} else {
 			console.warn(
+				"插件",
 				plugin.manifest.slug,
-				"duplicated, the plugin at",
+				"出现重复，位于",
 				plugin.pluginPath,
-				"wont be loaded.",
+				"的插件将不会被加载",
 			);
 		}
 	}
 
+	splashScreen.setSplashScreenProgress(1);
+	splashScreen.setSplashScreenText("正在完成加载");
 	for (const name in loadedPlugins) {
 		const plugin: NCMPlugin = loadedPlugins[name];
 		plugin.injects.forEach((inject) => {
@@ -305,8 +391,8 @@ async function onLoadError(e: Error) {
 	const ATTEMPTS_KEY = "cc.microblock.loader.reloadPluginAttempts";
 
 	const attempts = parseInt(await BetterNCM.app.readConfig(ATTEMPTS_KEY, "0"));
-	const pastError = localStorage.getItem(LOAD_ERROR_KEY) || "";
-	localStorage.setItem(
+	const pastError = await BetterNCM.app.readConfig(LOAD_ERROR_KEY, "");
+	await BetterNCM.app.writeConfig(
 		LOAD_ERROR_KEY,
 		`${pastError}第 ${attempts + 1} 次加载发生错误：\n${e.stack || e}\n\n`,
 	);
@@ -316,7 +402,7 @@ async function onLoadError(e: Error) {
 		await enableSafeMode();
 		await BetterNCM.app.writeConfig(ATTEMPTS_KEY, "0");
 	}
-	// betterncm_native.app.reloadIgnoreCache();
+	// betterncm_native.app.restart();
 	location.reload();
 }
 
@@ -337,25 +423,12 @@ window.addEventListener("DOMContentLoaded", async () => {
 	}
 
 	try {
-		await Promise.race([
-			Promise.all([loadPlugins(), initPluginManager()]),
-			BetterNCM.utils.delay(2000),
-		]);
+		await Promise.race([Promise.all([loadPlugins(), initPluginManager()])]);
 	} catch (e) {
 		onLoadError(e);
 		return;
 	}
-	const loadingMask = document.getElementById("loadingMask")
-	if (loadingMask) {
-		const anim = loadingMask.animate(
-			[{ opacity: 1 }, { opacity: 0, display: "none" }],
-			{
-				duration: 300,
-				fill: "forwards",
-				easing: "cubic-bezier(0.42,0,0.58,1)",
-			},
-		);
-		anim.commitStyles();
-	}
+	splashScreen.setSplashScreenText("加载完成！");
+	splashScreen.hideSplashScreen();
 	onPluginLoaded(loadedPlugins); // 更新插件管理器那边的插件列表
 });

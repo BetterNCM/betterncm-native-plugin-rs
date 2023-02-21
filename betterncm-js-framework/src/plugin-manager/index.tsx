@@ -1,5 +1,5 @@
 import BetterNCM from "../betterncm-api";
-import { isSafeMode, loadedPlugins } from "../loader";
+import { isSafeMode, loadedPlugins, splashScreen } from "../loader";
 import { NCMPlugin } from "../plugin";
 import { HeaderComponent } from "./components/header";
 import { SafeModeInfo } from "./components/safe-mode-info";
@@ -8,6 +8,7 @@ import { StartupWarning } from "./components/warning";
 const OPENED_WARNINGS = "config.betterncm.manager.openedwarnings";
 
 export async function initPluginManager() {
+	splashScreen.setSplashScreenText("正在初始化插件管理器");
 	// 准备设置页面和访问按钮
 	const settingsView = document.createElement("section");
 	const mainPageView: HTMLElement = (await BetterNCM.utils.waitForElement(
@@ -88,7 +89,7 @@ export async function initPluginManager() {
 	});
 }
 
-export let onPluginLoaded = (_: typeof loadedPlugins) => { };
+export let onPluginLoaded = (_: typeof loadedPlugins) => {};
 
 const PluginManager: React.FC = () => {
 	const [selectedPlugin, setSelectedPlugin] = React.useState<NCMPlugin | null>(
@@ -99,7 +100,11 @@ const PluginManager: React.FC = () => {
 	const [showStartupWarnings, setShowStartupWarnings] = React.useState(
 		localStorage.getItem(OPENED_WARNINGS) !== "true",
 	);
-	const safeMode = React.useMemo(isSafeMode, undefined);
+	const [safeMode, setSafeMode] = React.useState(false);
+
+	React.useEffect(() => {
+		isSafeMode().then(setSafeMode);
+	}, []);
 
 	React.useEffect(() => {
 		function sortFunc(key1: string, key2: string) {
@@ -152,7 +157,9 @@ const PluginManager: React.FC = () => {
 						onRequestClose={() => {
 							localStorage.setItem(OPENED_WARNINGS, "true");
 							setShowStartupWarnings(false);
-							document.querySelector('.bncm-btn-twinkling')?.classList.remove("bncm-btn-twinkling");
+							document
+								.querySelector(".bncm-btn-twinkling")
+								?.classList.remove("bncm-btn-twinkling");
 						}}
 					/>
 				) : (
@@ -193,16 +200,17 @@ const PluginManager: React.FC = () => {
 												<span className="plugin-list-name">
 													{loadPlugin.manifest.name}
 												</span>
-												{/* rome-ignore lint/a11y/useKeyWithClickEvents: <explanation> */}
-												{
-													(!loadPlugin.pluginPath.includes("./plugins_dev") && loadPlugin.manifest.name !== "PluginMarket") &&
-													(
+												{!loadPlugin.pluginPath.includes("./plugins_dev") &&
+													loadPlugin.manifest.name !== "PluginMarket" && (
+														// rome-ignore lint/a11y/useKeyWithClickEvents: <explanation>
 														<span
 															className="plugin-uninstall-btn"
 															onClick={async (e) => {
 																e.stopPropagation();
 
-																const requireRestart = loadPlugin.manifest.require_restart || loadPlugin.manifest.native_plugin
+																const requireRestart =
+																	loadPlugin.manifest.require_restart ||
+																	loadPlugin.manifest.native_plugin;
 
 																const pluginFilePath =
 																	await BetterNCM.fs.readFileText(
@@ -211,12 +219,10 @@ const PluginManager: React.FC = () => {
 																if (pluginFilePath.length > 1) {
 																	await BetterNCM.fs.remove(pluginFilePath);
 
-																	if(requireRestart){
-																		betterncm_native.app.restart()
-																	}else{
+																	if (requireRestart) {
 																		await BetterNCM.app.reloadPlugins();
-																		BetterNCM.reload();
 																	}
+																	BetterNCM.reload();
 																}
 															}}
 														>
@@ -238,10 +244,7 @@ const PluginManager: React.FC = () => {
 																<line x1={14} y1={11} x2={14} y2={17} />
 															</svg>
 														</span>
-													)
-												}
-
-
+													)}
 											</div>
 										);
 									})}
