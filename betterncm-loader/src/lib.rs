@@ -1,6 +1,7 @@
 mod api;
 mod cef_hooks;
 mod exception;
+mod http_api;
 mod plugins;
 mod proxy_functions;
 mod scheme_hijack;
@@ -61,16 +62,6 @@ extern "system" fn DllMain(
                 }
             }
 
-            if *PROCESS_TYPE == ProcessType::Main {
-                #[cfg(debug_assertions)]
-                open_console();
-
-                info!("MWBNCM 正在启动！");
-
-                info!("当前数据目录：{:?}", std::env::current_dir());
-                plugins::unzip_plugins();
-            }
-
             if let Err(e) = initialize(dll_module) {
                 error!("MWBNCM DLL Hook 初始化失败： {:?}", e.root_cause());
                 let e = HSTRING::from(format!("{e:?}"));
@@ -119,10 +110,22 @@ pub static PROCESS_TYPE: Lazy<ProcessType> = Lazy::new(|| {
 });
 
 fn initialize(dll_module: HINSTANCE) -> anyhow::Result<()> {
+    if *PROCESS_TYPE == ProcessType::Main {
+        #[cfg(debug_assertions)]
+        open_console();
+
+        info!("MWBNCM 正在启动！");
+
+        info!("当前数据目录：{:?}", std::env::current_dir());
+        plugins::unzip_plugins();
+    }
+
     unsafe {
         proxy_functions::init_proxy_functions(dll_module)?;
         exception::init_exception();
         cef_hooks::init_cef_hooks()?;
+
+        http_api::init_http_server()?;
 
         info!("MWBNCM 初始化成功！");
 

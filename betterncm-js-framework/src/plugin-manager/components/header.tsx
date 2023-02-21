@@ -27,9 +27,14 @@ export const HeaderComponent: React.FC<{
 
 	const [currentVersion, setCurrentVersion] = React.useState("");
 
-	const globalRequireRestart = React.useMemo(() =>
-		Object.values(loadedPlugins).findIndex(plugin =>
-			plugin.manifest.require_restart || plugin.manifest.native_plugin) !== -1, [])
+	const globalRequireRestart = React.useMemo(
+		() =>
+			Object.values(loadedPlugins).findIndex(
+				(plugin) =>
+					plugin.manifest.require_restart || plugin.manifest.native_plugin,
+			) !== -1,
+		[],
+	);
 
 	React.useEffect(() => {
 		(async () => {
@@ -145,40 +150,28 @@ export const HeaderComponent: React.FC<{
 						控制台
 					</Button>
 
-					{
-						globalRequireRestart ? (
-							<>
-								<Button
-									onClick={async () => {
-										BetterNCM.reload();
-									}}
-								>
-									重载网易云
-								</Button>
-
-								<Button
-									onClick={async () => {
-										await disableSafeMode();
-										betterncm_native.app.restart();
-									}}
-								>
-									重启并重载插件
-								</Button>
-							</>
-						) : (
+					{globalRequireRestart ? (
+						<>
 							<Button
 								onClick={async () => {
 									await disableSafeMode();
-									await BetterNCM.app.reloadPlugins();
 									BetterNCM.reload();
 								}}
 							>
-								重载插件
+								重启网易云
 							</Button>
-						)
-					}
-
-
+						</>
+					) : (
+						<Button
+							onClick={async () => {
+								await disableSafeMode();
+								await BetterNCM.app.reloadPlugins();
+								BetterNCM.reload();
+							}}
+						>
+							重载插件
+						</Button>
+					)}
 
 					<Button
 						style={{

@@ -11,11 +11,7 @@ export namespace app {
 	 * @returns TODO: 返回的啥玩意
 	 */
 	export async function exec(cmd: string, elevate = false, showWindow = false) {
-		const r = await betterncmFetch(
-			`/app/exec${elevate ? "_ele" : ""}${showWindow ? "?_showWindow" : ""}`,
-			{ method: "POST", body: cmd },
-		);
-		return r.status === 200;
+		return betterncm_native.app.exec(cmd, elevate, showWindow);
 	}
 
 	let betterNCMVersion: string | null = null;
@@ -52,9 +48,10 @@ export namespace app {
 	 * 重新解压所有插件
 	 * @returns 是否成功
 	 */
-	export async function reloadPlugins() {
-		const r = await betterncmFetch("/app/reload_plugin");
-		return r.status === 200;
+	export async function reloadPlugins(): Promise<void> {
+		return new Promise((resolve, reject) => {
+			betterncm_native.app.reloadPlugins(resolve, reject);
+		});
 	}
 
 	/**

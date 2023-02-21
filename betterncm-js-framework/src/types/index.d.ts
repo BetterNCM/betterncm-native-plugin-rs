@@ -82,6 +82,15 @@ declare global {
 				resolve: () => void,
 				reject: (error: string) => void,
 			): void;
+			export function reloadPlugins(
+				resolve: () => void,
+				reject: (error: string) => void,
+			): void;
+			export function exec(
+				command: string,
+				elevate: boolean,
+				showWindow: boolean,
+			): void;
 		}
 
 		export namespace internal {

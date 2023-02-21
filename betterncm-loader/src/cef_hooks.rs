@@ -143,9 +143,8 @@ mod hook {
     use windows::Win32::{
         Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND},
         UI::WindowsAndMessaging::{
-            GetClassNameW, SetLayeredWindowAttributes, SetWindowLongW, CW_USEDEFAULT, GWL_EXSTYLE,
-            LWA_ALPHA, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_EX_COMPOSITED, WS_OVERLAPPEDWINDOW,
-            WS_VISIBLE,
+            SetLayeredWindowAttributes, SetWindowLongW, CW_USEDEFAULT, GWL_EXSTYLE, LWA_ALPHA,
+            WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_EX_COMPOSITED, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
         },
     };
 
@@ -191,6 +190,23 @@ mod hook {
                 bytes_read: *mut c_int,
                 callback: *mut _cef_callback_t,
             ) -> c_int,
+        >,
+        orig_on_before_command_line_processing: Option<
+            unsafe extern "stdcall" fn(
+                self_: *mut _cef_app_t,
+                process_type: *const cef_string_t,
+                command_line: *mut _cef_command_line_t,
+            ),
+        >,
+        orig_append_switch: Option<
+            unsafe extern "stdcall" fn(self_: *mut _cef_command_line_t, name: *const cef_string_t),
+        >,
+        orig_append_switch_with_value: Option<
+            unsafe extern "stdcall" fn(
+                self_: *mut _cef_command_line_t,
+                name: *const cef_string_t,
+                value: *const cef_string_t,
+            ),
         >,
         browser_window: Option<windows::Win32::Foundation::HWND>,
     }
@@ -403,26 +419,111 @@ mod hook {
     #[instrument]
     pub unsafe extern "C" fn hook_cef_initialize(
         args: *const cef_sys::cef_main_args_t,
-        settings: *const cef_sys::cef_settings_t,
+        settings: *mut cef_sys::cef_settings_t,
         application: *mut cef_sys::cef_app_t,
         windows_sandbox_info: *mut c_void,
     ) -> ::core::ffi::c_int {
         debug!("正在初始化 CEF！");
         let ori_func: unsafe extern "C" fn(
             args: *const cef_sys::cef_main_args_t,
-            settings: *const cef_sys::cef_settings_t,
+            settings: *mut cef_sys::cef_settings_t,
             application: *mut cef_sys::cef_app_t,
             windows_sandbox_info: *mut c_void,
         ) -> ::core::ffi::c_int =
             std::mem::transmute(CEF_INITIALIZE.as_ref().unwrap().trampoline());
         let application = application.as_mut().unwrap();
-        let _hook_data = get_cef_hook_data();
+        let hook_data = get_cef_hook_data();
+
+        hook_data.orig_on_before_command_line_processing =
+            application.on_before_command_line_processing;
+        application.on_before_command_line_processing =
+            Some(hook_on_before_command_line_processing);
 
         ori_func(args, settings, application, windows_sandbox_info)
     }
 
+    #[instrument]
+    unsafe extern "stdcall" fn hook_on_before_command_line_processing(
+        this: *mut _cef_app_t,
+        process_type: *const cef_string_t,
+        command_line: *mut _cef_command_line_t,
+    ) {
+        info!("正在处理参数");
+        let command_line = command_line.as_mut().unwrap();
+        let hook_data = get_cef_hook_data();
+
+        command_line.append_switch.unwrap()(
+            command_line,
+            cef::CefString::from("disable-web-security").to_raw(),
+        );
+        command_line.append_switch.unwrap()(
+            command_line,
+            cef::CefString::from("ignore-certificate-errors").to_raw(),
+        );
+        command_line.append_switch.unwrap()(
+            command_line,
+            cef::CefString::from("in-process-gpu").to_raw(),
+        );
+        // 如果是单进程，使用 DevTools 进行 debugger; 断点测试时会卡住整个进程
+        // command_line.append_switch.unwrap()(
+        //     command_line,
+        //     cef::CefString::from("single-process").to_raw(),
+        // );
+        command_line.append_switch.unwrap()(
+            command_line,
+            cef::CefString::from("allow-running-insecure-content").to_raw(),
+        );
+        // command_line.append_switch_with_value.unwrap()(
+        //     command_line,
+        //     cef::CefString::from("js-flags").to_raw(),
+        //     cef::CefString::from("--lite-mode").to_raw(),
+        // );
+
+        hook_data.orig_append_switch = command_line.append_switch;
+        command_line.append_switch = Some(hook_append_switch);
+
+        hook_data.orig_append_switch_with_value = command_line.append_switch_with_value;
+        command_line.append_switch_with_value = Some(hook_append_switch_with_value);
+
+        hook_data.orig_on_before_command_line_processing.unwrap()(this, process_type, command_line)
+    }
+
+    #[instrument]
+    unsafe extern "stdcall" fn hook_append_switch(
+        this: *mut _cef_command_line_t,
+        name: *const cef_string_t,
+    ) {
+        let name_t = cef::CefString::from_raw(name as usize as *mut _).to_string();
+
+        if name_t.as_str() == "--log-file" {
+            return;
+        }
+
+        debug!("正在增加参数 {}", name_t);
+
+        get_cef_hook_data().orig_append_switch.unwrap()(this, name);
+    }
+
+    #[instrument]
+    unsafe extern "stdcall" fn hook_append_switch_with_value(
+        this: *mut _cef_command_line_t,
+        name: *const cef_string_t,
+        value: *const cef_string_t,
+    ) {
+        let name_t = cef::CefString::from_raw(name as usize as *mut _).to_string();
+        let value_t = cef::CefString::from_raw(value as usize as *mut _).to_string();
+
+        if name_t.as_str() == "--log-file" {
+            return;
+        }
+
+        debug!("正在增加参数 {} = {}", name_t, value_t);
+
+        get_cef_hook_data().orig_append_switch_with_value.unwrap()(this, name, value);
+    }
+
     pub static mut CEF_CREATE_BROWSER_SYNC: Option<RawDetour> = None;
-    #[instrument(skip_all)]
+    // #[instrument(skip_all)]
     pub unsafe extern "C" fn hook_cef_browser_host_create_browser_sync(
         window_info: &mut cef_window_info_t,
         client: &mut cef_client_t,
@@ -455,17 +556,6 @@ mod hook {
 
         let parent_hwnd: windows::Win32::Foundation::HWND =
             std::mem::transmute(window_info.parent_window);
-        let mut cls_name = [0u16; 64];
-
-        let len = GetClassNameW(parent_hwnd, &mut cls_name);
-
-        dbg!(String::from_utf16_lossy(&cls_name[..len as _]));
-
-        dbg!(std::mem::transmute::<_, *const ()>(
-            client.get_render_handler
-        ));
-        dbg!(&window_info);
-        dbg!(&settings);
 
         struct Handle(windows::Win32::Foundation::HWND);
         unsafe impl raw_window_handle::HasRawWindowHandle for Handle {
@@ -486,13 +576,7 @@ mod hook {
         SetLayeredWindowAttributes(parent_hwnd, None, 0, LWA_ALPHA);
         let _ = dbg!(window_shadows::set_shadow(Handle(parent_hwnd), true));
 
-        // if !window_info.window.is_null() {
-        //     window_info.ex_style |= WS_EX_LAYERED;
-        //     window_info.windowless_rendering_enabled = 1;
-        // }
-
         settings.background_color = 0x00000000;
-        // client get_request_handler on_render_view_ready
 
         let result = (ori_func)(
             window_info,

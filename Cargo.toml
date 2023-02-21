@@ -12,6 +12,6 @@ members = [
 lto = true
 codegen-units = 1
 panic = "abort"
-opt-level = "z"
+opt-level = "s"
 debug = false
 strip = true

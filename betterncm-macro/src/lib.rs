@@ -166,34 +166,23 @@ pub fn betterncm_native_api(attr: TokenStream, input: TokenStream) -> TokenStrea
 
     inner.block.stmts.push(Stmt::Item(Item::Fn(func)));
 
-    let argn_error_string = LitStr::new(
-        &format!(
-            "参数数量不正确，需要 {} 个参数，实际输入了 {{}} 个参数",
-            if this_object { argn - 1 } else { argn }
-        ),
-        Span::call_site().into(),
-    );
-    let mut unsafe_block: ExprUnsafe = syn::parse(
-        {
-            if this_object {
-                quote! {
-                    unsafe {
-                        use ::anyhow::*;
-                        ::anyhow::ensure!(orig_args.len() >= #argn, #argn_error_string, orig_args.len() - 1);
-                    }
-                }
-                .into()
-            } else {
-                quote! {
-                    unsafe {
-                        use ::anyhow::*;
-                        ::anyhow::ensure!(orig_args.len() >= #argn, #argn_error_string, orig_args.len());
-                    }
-                }
-                .into()
+    // let argn_error_string = LitStr::new(
+    //     &format!(
+    //         "参数数量不正确，需要 {} 个参数，实际输入了 {{}} 个参数",
+    //         if this_object { argn - 1 } else { argn }
+    //     ),
+    //     Span::call_site().into(),
+    // );
+    // ::anyhow::ensure!(orig_args.len() >= #argn, #argn_error_string, orig_args.len() - 1);
+    // ::anyhow::ensure!(orig_args.len() >= #argn, #argn_error_string, orig_args.len());
+    let mut unsafe_block: ExprUnsafe = syn::parse({
+        quote! {
+            unsafe {
+                use ::anyhow::*;
             }
-        },
-    )
+        }
+        .into()
+    })
     .unwrap();
 
     for i in 0..argn {
@@ -216,7 +205,7 @@ pub fn betterncm_native_api(attr: TokenStream, input: TokenStream) -> TokenStrea
                         let arg = orig_args
                             .get(#i)
                             .map(|x| ::cef::CefV8Value::from_raw(*x))
-                            .context(#error_string)?;
+                            .unwrap_or_else(|| ::cef::CefV8Value::new_undefined());
                         let arg_type = arg.get_js_type();
                         arg
                             .try_into()

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, os::windows::process::CommandExt};
+use std::{collections::HashMap, io::Write};
 
 use betterncm_macro::*;
 use cef::*;
@@ -11,16 +11,13 @@ use windows::Win32::{
 #[betterncm_native_api(name = "app.restart")]
 #[instrument]
 pub fn restart() {
-    // TODO: 重启
-    let _ = dbg!(std::process::Command::new("cmd")
-        .arg("/K")
-        .arg("taskkill /F /IM cloudmusic.exe")
-        .env(
-            "RUST_BACKTRACE",
-            std::env::var("RUST_BACKTRACE").unwrap_or("".into()),
-        )
-        .creation_flags(0x08000000 | 0x00000008 | 0x00000200)
-        .spawn());
+    crate::exception::restart_self();
+}
+
+#[betterncm_native_api(name = "app.reloadPlugins")]
+#[instrument]
+pub fn restart_plugins() {
+    crate::exception::restart_self();
 }
 
 #[betterncm_native_api(name = "app.reloadIgnoreCache")]
@@ -45,11 +42,17 @@ pub fn write_config(
     reject: CefV8Function,
 ) {
     super::threaded_promise(this, resolve, reject, move || {
-        let data = std::fs::read_to_string("./config.toml").unwrap_or_default();
-        let mut data = toml::from_str::<HashMap<String, String>>(&data).unwrap_or_default();
+        let data = std::fs::read_to_string("./config.json").unwrap_or_default();
+        let mut data = serde_json::from_str::<HashMap<String, String>>(&data).unwrap_or_default();
         data.insert(key, value);
-        let data = toml::to_string_pretty(&data).unwrap_or_default();
-        let _ = std::fs::write("./config.toml", data);
+        let data = serde_json::to_string_pretty(&data).unwrap_or_default();
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open("./config.json")?;
+        let _ = file.write_all(data.as_bytes());
+        let _ = file.sync_all();
         Ok(())
     });
 }
@@ -64,8 +67,8 @@ pub fn read_config(
     reject: CefV8Function,
 ) {
     super::threaded_promise(this, resolve, reject, move || {
-        let data = std::fs::read_to_string("./config.toml").unwrap_or_default();
-        if let Ok(mut data) = toml::from_str::<HashMap<String, String>>(&data) {
+        let data = std::fs::read_to_string("./config.json").unwrap_or_default();
+        if let Ok(mut data) = serde_json::from_str::<HashMap<String, String>>(&data) {
             if let Some(value) = data.remove(&key) {
                 return Ok(value);
             }
@@ -78,7 +81,12 @@ pub fn read_config(
 #[instrument]
 pub fn get_ncm_path() -> anyhow::Result<String> {
     let exe = std::env::current_exe().unwrap();
-    let exe = exe.parent().unwrap().to_string_lossy().to_string();
+    let exe = exe
+        .parent()
+        .unwrap()
+        .to_string_lossy()
+        .to_string()
+        .replace('\\', "/");
     Ok(exe)
 }
 
@@ -88,4 +96,10 @@ pub fn show_console(show: bool) {
     unsafe {
         ShowWindow(GetConsoleWindow(), SW_SHOW);
     }
+}
+
+#[betterncm_native_api(name = "app.exec")]
+#[instrument]
+pub fn exec(cmd: String, elevate: bool, show_window: bool) {
+    crate::exception::exec(&cmd, elevate, show_window);
 }
