@@ -715,8 +715,28 @@ mod hook {
                 frame,
                 framework_js.to_raw(),
                 framework_js_url.to_raw(),
-                0
+                0,
             ));
+
+            for plugin in crate::plugins::LOADED_PLUGINS.iter() {
+                if !plugin.startup_script.is_empty() {
+                    let startup_script = cef::CefString::from(plugin.startup_script.to_owned());
+                    let startup_script_url = cef::CefString::from(format!(
+                        "betterncm://betterncm/plugins/{}/startup_script.js",
+                        urlencoding::encode(&plugin.name)
+                    ));
+                    dbg!(frame.execute_java_script.unwrap()(
+                        frame,
+                        startup_script.to_raw(),
+                        startup_script_url.to_raw(),
+                        0,
+                    ));
+                    info!(
+                        "已执行来自 {} 的启动脚本文件 startup_script.js",
+                        plugin.name
+                    );
+                }
+            }
         }
 
         let host = browser.get_host.unwrap()(browser).as_mut().unwrap();
