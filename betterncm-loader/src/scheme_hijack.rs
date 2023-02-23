@@ -50,22 +50,14 @@ pub fn on_process_url_data(url: &str, data: Vec<u8>) -> Vec<u8> {
                         }
                         "append" => {
                             data.push_str(hijack.code.as_str());
-                            tracing::debug!(
-                                "已执行 Hijack 增加尾部 {} {}",
-                                url,
-                                hijack.code
-                            );
+                            tracing::debug!("已执行 Hijack 增加尾部 {} {}", url, hijack.code);
                         }
                         "prepend" => {
                             let mut tmp = hijack.code.to_owned();
                             tmp.reserve(tmp.len() + data.len());
                             tmp.push_str(data.as_str());
                             data = tmp;
-                            tracing::debug!(
-                                "已执行 Hijack 增加头部 {} {}",
-                                url,
-                                hijack.code
-                            );
+                            tracing::debug!("已执行 Hijack 增加头部 {} {}", url, hijack.code);
                         }
                         other => {
                             tracing::warn!("警告：未知的 Hijack 方式：{other}");
