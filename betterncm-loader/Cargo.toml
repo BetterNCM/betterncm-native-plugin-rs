@@ -26,6 +26,7 @@ nipper = "0.1.9"
 rcgen = "0.10"
 actix-web = { version = "4", features = ["rustls"] }
 detour = { version = "0.8", default-features = false }
+urlencoding = "2.1"
 rayon = "1.6"
 ansi_term = "0.12"
 tracing = "0.1"
@@ -52,6 +53,7 @@ windows = { version = "*", features = [
     "Win32_Security",
     "Win32_System_Registry",
     "Win32_System_Threading",
+    "Win32_Storage_FileSystem",
 ] }
 windows-sys = { version = "*", features = [
     "Win32_Foundation",
@@ -73,6 +75,7 @@ windows-sys = { version = "*", features = [
     "Win32_Security",
     "Win32_System_Registry",
     "Win32_System_Threading",
+    "Win32_Storage_FileSystem",
 ] }
 rand = "0.8.5"
 rustls = "0.20.8"
