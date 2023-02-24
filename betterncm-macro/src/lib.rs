@@ -187,7 +187,7 @@ pub fn betterncm_native_api(attr: TokenStream, input: TokenStream) -> TokenStrea
 
     for i in 0..argn {
         let argname = format_ident!("arg_{}", i);
-        let error_string = LitStr::new(
+        let _error_string = LitStr::new(
             &format!("没有提供第 {} 个参数", if this_object { i } else { i + 1 }),
             Span::call_site().into(),
         );

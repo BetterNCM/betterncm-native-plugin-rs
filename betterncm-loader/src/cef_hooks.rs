@@ -63,73 +63,229 @@ pub unsafe fn init_cef_hooks() -> anyhow::Result<()> {
 
     debug!("CEF Hook 已初始化完毕！");
 
-    let d3d11_dll = LoadLibraryW(w!("d3d11.dll")).context("无法加载 D3D11 动态链接库！")?;
+    // let d3d11_dll = LoadLibraryW(w!("d3d11.dll")).context("无法加载 D3D11 动态链接库！")?;
 
-    // D2D1CreateFactory
-    d2d1_hook::D3D11_CREATE_DEVICE = hook_dll_function(
-        d3d11_dll,
-        s!("D3D11CreateDevice"),
-        d2d1_hook::hook_d3d11_create_device as _,
+    // // D2D1CreateFactory
+    // d2d1_hook::D3D11_CREATE_DEVICE = hook_dll_function(
+    //     d3d11_dll,
+    //     s!("D3D11CreateDevice"),
+    //     d2d1_hook::hook_d3d11_create_device as _,
+    // )?;
+
+    let dsound_dll = LoadLibraryW(w!("dsound.dll")).context("无法加载 DirectSound 动态链接库！")?;
+
+    // DirectSoundCreate
+    dsound_hook::DIRECT_SOUND_CREATE = hook_dll_function(
+        dsound_dll,
+        s!("DirectSoundCreate"),
+        dsound_hook::hook_direct_sound_create as _,
     )?;
+
+    // DirectSoundCreate8
+    // dsound_hook::DIRECT_SOUND_CREATE_8 = hook_dll_function(
+    //     dsound_dll,
+    //     s!("DirectSoundCreate8"),
+    //     dsound_hook::hook_direct_sound_create_8 as _,
+    // )?;
 
     Ok(())
 }
 
-mod d2d1_hook {
+mod dsound_hook {
     use detour::RawDetour;
+    use once_cell::sync::Lazy;
     use tracing::*;
-    use windows::{w, Win32::UI::WindowsAndMessaging::FindWindowW};
-    pub static mut D3D11_CREATE_DEVICE: Option<RawDetour> = None;
+    use windows::{core::Vtable, Win32::Media::Audio::WAVEFORMATEXTENSIBLE};
 
-    pub unsafe extern "system" fn hook_d3d11_create_device(
-        padapter: windows_sys::Win32::Graphics::Dxgi::IDXGIAdapter,
-        drivertype: windows_sys::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE,
-        software: windows_sys::Win32::Foundation::HINSTANCE,
-        flags: windows_sys::Win32::Graphics::Direct3D11::D3D11_CREATE_DEVICE_FLAG,
-        _pfeaturelevels: *const windows_sys::Win32::Graphics::Direct3D::D3D_FEATURE_LEVEL,
-        _featurelevels: u32,
-        sdkversion: u32,
-        ppdevice: *mut windows_sys::Win32::Graphics::Direct3D11::ID3D11Device,
-        pfeaturelevel: *mut windows_sys::Win32::Graphics::Direct3D::D3D_FEATURE_LEVEL,
-        ppimmediatecontext: *mut windows_sys::Win32::Graphics::Direct3D11::ID3D11DeviceContext,
-    ) -> ::windows_sys::core::HRESULT {
-        use windows_sys::Win32::Graphics::Dxgi::*;
-        let ncm_hwnd = FindWindowW(w!("OrpheusBrowserHost"), None);
+    #[derive(Default)]
+    struct DSoundHookData {
+        create_sound_buffer_hook: Option<RawDetour>,
+        sound_buffer_unlock_hook: Option<RawDetour>,
+        sound_buffer_set_freq_hook: Option<RawDetour>,
+    }
 
-        let scd = DXGI_SWAP_CHAIN_DESC {
-            BufferCount: 1,
-            BufferDesc: Common::DXGI_MODE_DESC {
-                Format: Common::DXGI_FORMAT_R8G8B8A8_UNORM,
-                ..std::mem::zeroed()
-            },
-            BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
-            OutputWindow: ncm_hwnd.0,
-            SampleDesc: Common::DXGI_SAMPLE_DESC {
-                Count: 1,
-                ..std::mem::zeroed()
-            },
-            Windowed: 1,
-            ..std::mem::zeroed()
-        };
+    static mut DSOUND_HOOK_DATA: Lazy<DSoundHookData> = Lazy::new(Default::default);
 
-        let result = windows_sys::Win32::Graphics::Direct3D11::D3D11CreateDeviceAndSwapChain(
-            dbg!(padapter),
-            dbg!(drivertype),
-            dbg!(software),
-            dbg!(flags),
-            std::ptr::null(),
-            0,
-            dbg!(sdkversion),
-            &scd,
-            std::ptr::null_mut(),
-            dbg!(ppdevice),
-            dbg!(pfeaturelevel),
-            dbg!(ppimmediatecontext),
-        );
+    pub(self) fn get_dsound_hook_data() -> &'static mut Lazy<DSoundHookData> {
+        unsafe { &mut DSOUND_HOOK_DATA }
+    }
 
-        debug!("创建了 D3D 设备上下文");
+    pub static mut DIRECT_SOUND_CREATE: Option<RawDetour> = None;
+    // pub static mut DIRECT_SOUND_CREATE_8: Option<RawDetour> = None;
+
+    pub unsafe extern "system" fn hook_direct_sound_create(
+        pcguiddevice: *const windows_sys::core::GUID,
+        ppds: *mut windows_sys::Win32::Media::Audio::DirectSound::IDirectSound,
+        punkouter: windows_sys::core::IUnknown,
+    ) -> windows_sys::core::HRESULT {
+        let orig_func: unsafe extern "system" fn(
+            pcguiddevice: *const windows_sys::core::GUID,
+            ppds: *mut windows_sys::Win32::Media::Audio::DirectSound::IDirectSound,
+            punkouter: windows_sys::core::IUnknown,
+        ) -> windows_sys::core::HRESULT =
+            std::mem::transmute(DIRECT_SOUND_CREATE.as_ref().unwrap().trampoline());
+
+        let result = orig_func(pcguiddevice, ppds, punkouter);
+
+        if result == 0 {
+            info!("使用 DirectSoundCreate 创建了 DirectSound 接口");
+
+            let ppds: *mut windows::Win32::Media::Audio::DirectSound::IDirectSound =
+                std::mem::transmute(ppds);
+
+            if let Some(ppds) = ppds.as_mut() {
+                let data = get_dsound_hook_data();
+                if data.create_sound_buffer_hook.is_none() {
+                    let hook = RawDetour::new(
+                        ppds.vtable().CreateSoundBuffer as _,
+                        hook_create_sound_buffer as _,
+                    )
+                    .unwrap();
+                    hook.enable().unwrap();
+                    data.create_sound_buffer_hook = Some(hook);
+                    info!("篡改了 IDirectSound::CreateSoundBuffer 函数");
+                }
+            }
+        }
 
         result
+    }
+
+    unsafe extern "system" fn hook_create_sound_buffer(
+        this: *mut ::core::ffi::c_void,
+        pcdsbufferdesc: &windows::Win32::Media::Audio::DirectSound::DSBUFFERDESC,
+        ppdsbuffer: *mut ::core::option::Option<
+            windows::Win32::Media::Audio::DirectSound::IDirectSoundBuffer,
+        >,
+        punkouter: *mut ::core::ffi::c_void,
+    ) -> ::windows::core::HRESULT {
+        let data = get_dsound_hook_data();
+        let orig_func: unsafe extern "system" fn(
+            this: *mut ::core::ffi::c_void,
+            pcdsbufferdesc: &windows::Win32::Media::Audio::DirectSound::DSBUFFERDESC,
+            ppdsbuffer: *mut ::core::option::Option<
+                windows::Win32::Media::Audio::DirectSound::IDirectSoundBuffer,
+            >,
+            punkouter: *mut ::core::ffi::c_void,
+        ) -> ::windows::core::HRESULT =
+            std::mem::transmute(data.create_sound_buffer_hook.as_ref().unwrap().trampoline());
+
+        let result = orig_func(this, dbg!(pcdsbufferdesc), ppdsbuffer, punkouter);
+
+        if result.is_ok() {
+            info!("创建了音频缓冲区");
+
+            if let Some(Some(ppdsbuffer)) = ppdsbuffer.as_mut() {
+                if let Some(wfx) = pcdsbufferdesc.lpwfxFormat.as_ref() {
+                    if wfx.wFormatTag == 0xFFFE {
+                        // 扩展格式
+                        let wfx: &WAVEFORMATEXTENSIBLE = std::mem::transmute(wfx);
+                        if let Some(sx) = crate::audio::get_audio_thread_sender() {
+                            // dbg!(wfx.SubFormat);
+                            let _ = sx.send(crate::audio::AudioThreadMessage::SetAudioInfo(
+                                crate::audio::AudioInfo {
+                                    sps: wfx.Format.nSamplesPerSec,
+                                    bps: wfx.Format.wBitsPerSample,
+                                    ca: wfx.Format.nChannels,
+                                },
+                            ));
+                        }
+                    } else if let Some(sx) = crate::audio::get_audio_thread_sender() {
+                        let _ = sx.send(crate::audio::AudioThreadMessage::SetAudioInfo(
+                            crate::audio::AudioInfo {
+                                sps: wfx.nSamplesPerSec,
+                                bps: wfx.wBitsPerSample,
+                                ca: wfx.nChannels,
+                            },
+                        ));
+                    }
+                }
+
+                if data.sound_buffer_unlock_hook.is_none() {
+                    let hook = RawDetour::new(
+                        ppdsbuffer.vtable().Unlock as _,
+                        sound_buffer_unlock_hook as _,
+                    )
+                    .unwrap();
+                    let _ = hook.enable();
+                    data.sound_buffer_unlock_hook = Some(hook);
+                    info!("篡改了 IDirectSoundBuffer::Unlock 函数");
+                }
+
+                if data.sound_buffer_set_freq_hook.is_none() {
+                    let hook = RawDetour::new(
+                        ppdsbuffer.vtable().SetFrequency as _,
+                        sound_buffer_set_freq_hook as _,
+                    )
+                    .unwrap();
+                    let _ = hook.enable();
+                    data.sound_buffer_set_freq_hook = Some(hook);
+                    info!("篡改了 IDirectSoundBuffer::SetFrequency 函数");
+                }
+            }
+        }
+
+        result
+    }
+
+    unsafe extern "system" fn sound_buffer_unlock_hook(
+        this: *mut windows::Win32::Media::Audio::DirectSound::IDirectSoundBuffer,
+        pvaudioptr1: *const ::core::ffi::c_void,
+        dwaudiobytes1: u32,
+        pvaudioptr2: *const ::core::ffi::c_void,
+        dwaudiobytes2: u32,
+    ) -> ::windows::core::HRESULT {
+        let data = get_dsound_hook_data();
+        let orig_func: unsafe extern "system" fn(
+            this: *mut windows::Win32::Media::Audio::DirectSound::IDirectSoundBuffer,
+            pvaudioptr1: *const ::core::ffi::c_void,
+            dwaudiobytes1: u32,
+            pvaudioptr2: *const ::core::ffi::c_void,
+            dwaudiobytes2: u32,
+        ) -> ::windows::core::HRESULT =
+            std::mem::transmute(data.sound_buffer_unlock_hook.as_ref().unwrap().trampoline());
+
+        let buf = std::slice::from_raw_parts(pvaudioptr1 as *const u8, dwaudiobytes1 as _);
+
+        if this.as_ref().is_some() {
+            // info!(
+            //     "调用了 IDirectSoundBuffer::Unlock 函数 缓冲区大小 {}",
+            //     buf.len(),
+            // );
+            if let Some(sx) = crate::audio::get_audio_thread_sender() {
+                let _ = sx.send(crate::audio::AudioThreadMessage::PushAudioBuffer(
+                    buf.to_vec(),
+                ));
+            }
+        }
+
+        orig_func(this, pvaudioptr1, dwaudiobytes1, pvaudioptr2, dwaudiobytes2)
+    }
+
+    unsafe extern "system" fn sound_buffer_set_freq_hook(
+        this: *mut ::core::ffi::c_void,
+        dwfrequency: u32,
+    ) -> ::windows::core::HRESULT {
+        let data = get_dsound_hook_data();
+        let orig_func: unsafe extern "system" fn(
+            this: *mut ::core::ffi::c_void,
+            dwfrequency: u32,
+        ) -> ::windows::core::HRESULT = std::mem::transmute(
+            data.sound_buffer_set_freq_hook
+                .as_ref()
+                .unwrap()
+                .trampoline(),
+        );
+
+        // if result.is_ok() {
+        //     if let Some(sx) = crate::audio::get_audio_thread_sender() {
+        //         let _ = sx.send(crate::audio::AudioThreadMessage::SetSamplesPerSec(
+        //             dwfrequency,
+        //         ));
+        //     }
+        // }
+
+        orig_func(this, dwfrequency)
     }
 }
 
@@ -139,9 +295,11 @@ mod hook {
     use cef_sys::*;
     use detour::RawDetour;
     use once_cell::sync::Lazy;
+    use path_absolutize::Absolutize;
     use tracing::*;
     use windows::Win32::{
         Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND},
+        System::Threading::GetCurrentProcessId,
         UI::WindowsAndMessaging::{
             SetLayeredWindowAttributes, SetWindowLongW, CW_USEDEFAULT, GWL_EXSTYLE, LWA_ALPHA,
             WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_EX_COMPOSITED, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
@@ -285,6 +443,8 @@ mod hook {
         let request = request.as_mut().unwrap();
 
         let url = cef::CefString::from_raw(request.get_url.unwrap()(request) as _).to_string();
+
+        // debug!("拦截到请求 {}", url);
 
         if crate::scheme_hijack::on_test_url_hijack(&url) {
             get_cef_hook_data().origin_read_response = result.read_response;
@@ -473,11 +633,32 @@ mod hook {
             command_line,
             cef::CefString::from("allow-running-insecure-content").to_raw(),
         );
-        // command_line.append_switch_with_value.unwrap()(
-        //     command_line,
-        //     cef::CefString::from("js-flags").to_raw(),
-        //     cef::CefString::from("--lite-mode").to_raw(),
-        // );
+
+        if let Ok(ext_dir) = std::fs::read_dir("./devtool-extensions") {
+            let mut exts = Vec::with_capacity(16);
+
+            for ext_entry in ext_dir.flatten() {
+                if ext_entry.path().is_dir() {
+                    if let Ok(ext_path) = ext_entry.path().absolutize() {
+                        exts.push(ext_path.to_string_lossy().to_string());
+                    }
+                }
+            }
+
+            if !exts.is_empty() {
+                info!("已尝试加载插件 {}", exts.join(", "));
+                command_line.append_switch_with_value.unwrap()(
+                    command_line,
+                    cef::CefString::from("load-extension").to_raw(),
+                    cef::CefString::from(exts.join(",")).to_raw(),
+                );
+
+                command_line.append_argument.unwrap()(
+                    command_line,
+                    cef::CefString::from(format!("--load-extension={}", exts.join(","))).to_raw(),
+                );
+            }
+        }
 
         hook_data.orig_append_switch = command_line.append_switch;
         command_line.append_switch = Some(hook_append_switch);
@@ -485,7 +666,14 @@ mod hook {
         hook_data.orig_append_switch_with_value = command_line.append_switch_with_value;
         command_line.append_switch_with_value = Some(hook_append_switch_with_value);
 
-        hook_data.orig_on_before_command_line_processing.unwrap()(this, process_type, command_line)
+        hook_data.orig_on_before_command_line_processing.unwrap()(this, process_type, command_line);
+
+        let pid = GetCurrentProcessId();
+
+        command_line.append_argument.unwrap()(
+            command_line,
+            cef::CefString::from(format!("--mrbncb-main-pid={pid}")).to_raw(),
+        );
     }
 
     #[instrument]
@@ -495,7 +683,7 @@ mod hook {
     ) {
         let name_t = cef::CefString::from_raw(name as usize as *mut _).to_string();
 
-        if name_t.as_str() == "--log-file" {
+        if name_t.as_str() == "log-file" {
             return;
         }
 
@@ -513,7 +701,7 @@ mod hook {
         let name_t = cef::CefString::from_raw(name as usize as *mut _).to_string();
         let value_t = cef::CefString::from_raw(value as usize as *mut _).to_string();
 
-        if name_t.as_str() == "--log-file" {
+        if name_t.as_str() == "log-file" {
             return;
         }
 

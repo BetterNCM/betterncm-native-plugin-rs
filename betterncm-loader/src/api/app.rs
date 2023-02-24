@@ -3,9 +3,18 @@ use std::{collections::HashMap, io::Write};
 use betterncm_macro::*;
 use cef::*;
 use tracing::*;
-use windows::Win32::{
-    System::Console::GetConsoleWindow,
-    UI::WindowsAndMessaging::{ShowWindow, SW_SHOW},
+use windows::{
+    w,
+    Win32::{
+        Foundation::COLORREF,
+        Graphics::Dwm::{
+            DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DWMWCP_ROUND,
+        },
+        System::Console::GetConsoleWindow,
+        UI::WindowsAndMessaging::{
+            FindWindowExW, FindWindowW, SetLayeredWindowAttributes, ShowWindow, LWA_ALPHA, SW_SHOW,
+        },
+    },
 };
 
 #[betterncm_native_api(name = "app.restart")]
@@ -23,7 +32,7 @@ pub fn restart_plugins() {
 #[betterncm_native_api(name = "app.reloadIgnoreCache")]
 #[instrument]
 pub fn reload_ignore_cache() {
-    // TODO
+    crate::exception::restart_self();
 }
 
 #[betterncm_native_api(name = "app.version")]
@@ -102,4 +111,32 @@ pub fn show_console(show: bool) {
 #[instrument]
 pub fn exec(cmd: String, elevate: bool, show_window: bool) {
     crate::exception::exec(&cmd, elevate, show_window);
+}
+
+#[betterncm_native_api(name = "app.setRoundedCorner")]
+#[instrument]
+pub fn set_rounded_corner(enable: bool) {
+    unsafe {
+        let hwnd = FindWindowW(w!("OrpheusBrowserHost"), None);
+        if hwnd.0 != 0 {
+            let pref = if enable {
+                DWMWCP_ROUND
+            } else {
+                DWMWCP_DONOTROUND
+            };
+
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                &pref as *const _ as _,
+                std::mem::size_of_val(&pref) as _,
+            );
+
+            let mut ncm_shadow = FindWindowExW(None, None, w!("OrpheusShadow"), None);
+            while ncm_shadow.0 != 0 {
+                SetLayeredWindowAttributes(ncm_shadow, COLORREF::default(), 0, LWA_ALPHA);
+                ncm_shadow = FindWindowExW(None, ncm_shadow, w!("OrpheusShadow"), None);
+            }
+        }
+    }
 }
