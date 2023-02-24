@@ -106,6 +106,12 @@ declare global {
 				// rome-ignore lint/suspicious/noExplicitAny: <explanation>
 			): any;
 		}
+
+		export namespace audio {
+			export function getFFTData(amount?: number): number[];
+			export function acquireFFTData(): void;
+			export function releaseFFTData(): void;
+		}
 	}
 	interface Window {
 		React: typeof import("react");

@@ -11,6 +11,8 @@ fn init_native_api(ctx: &NativeAPIInitContext) {
     ctx.define_api(internal::get_framework_css);
     ctx.define_api(util::execute_java_script);
     ctx.define_api(audio::get_fft_data);
+    ctx.define_api(audio::acquire_fft_data);
+    ctx.define_api(audio::release_fft_data);
     ctx.define_api(app::restart);
     ctx.define_api(app::read_config);
     ctx.define_api(app::write_config);
