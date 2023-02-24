@@ -3,6 +3,7 @@ use std::{collections::HashMap, fs::ReadDir};
 use crate::utils::unzip_file;
 use once_cell::sync::Lazy;
 use path_absolutize::Absolutize;
+use semver::VersionReq;
 use tracing::*;
 
 #[derive(serde::Deserialize, Clone, Debug)]
@@ -79,11 +80,11 @@ pub static LOADED_PLUGINS: Lazy<Vec<PluginManifest>> = Lazy::new(|| {
 
 pub static HIJACKS_MAP: Lazy<HashMap<String, Vec<HijackEntry>>> = Lazy::new(|| {
     let mut result: HashMap<String, Vec<HijackEntry>> = HashMap::with_capacity(16);
-    let ncm_version = crate::utils::get_ncm_version();
+    let ncm_version = dbg!(crate::utils::get_ncm_version());
 
     for plugin in LOADED_PLUGINS.iter() {
         for (version_req, hijacks) in plugin.hijacks.iter() {
-            if let Ok(version_req) = semver::VersionReq::parse(version_req) {
+            let mut check_version = |version_req: VersionReq| {
                 if version_req.matches(&ncm_version) {
                     for (start_url, hijack) in hijacks.iter() {
                         if let Some(cur_hijacks) = result.get_mut(start_url) {
@@ -107,8 +108,27 @@ pub static HIJACKS_MAP: Lazy<HashMap<String, Vec<HijackEntry>>> = Lazy::new(|| {
                         }
                     }
                 }
+            };
+
+            if let Ok(version_req) = semver::VersionReq::parse(version_req) {
+                check_version(version_req);
             } else {
-                warn!("警告：错误的版本匹配字符串 {}", version_req);
+                // 尝试添加逗号拆分
+                let mut buf = String::with_capacity(version_req.len());
+                let mut result = Vec::with_capacity(8);
+                for word in version_req.split_whitespace() {
+                    buf.push_str(word);
+                    if semver::VersionReq::parse(buf.as_str()).is_ok() {
+                        result.push(buf.to_owned());
+                        buf.clear();
+                    }
+                }
+                let version_req = result.join(",");
+                if let Ok(version_req) = semver::VersionReq::parse(dbg!(version_req.as_str())) {
+                    check_version(version_req);
+                } else {
+                    warn!("警告：错误的版本匹配字符串 {}", version_req);
+                }
             }
         }
     }

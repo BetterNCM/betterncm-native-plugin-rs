@@ -54,6 +54,7 @@ windows = { version = "*", features = [
     "Win32_System_Registry",
     "Win32_System_Threading",
     "Win32_Storage_FileSystem",
+    "Win32_Media_Audio_DirectSound",
 ] }
 windows-sys = { version = "*", features = [
     "Win32_Foundation",
@@ -76,10 +77,15 @@ windows-sys = { version = "*", features = [
     "Win32_System_Registry",
     "Win32_System_Threading",
     "Win32_Storage_FileSystem",
+    "Win32_Media_Audio_DirectSound",
 ] }
 rand = "0.8.5"
 rustls = "0.20.8"
 semver = "1.0.16"
+audioviz = "0.5.0"
+interprocess = "1.2.1"
+byteorder = "1.4.3"
+drain_filter_polyfill = "0.1.3"
 
 [dev-dependencies]
 winreg = "0.11"

@@ -2,9 +2,36 @@ use cef::*;
 use tracing::*;
 
 mod app;
+mod audio;
 mod fs;
 mod internal;
 mod util;
+
+fn init_native_api(ctx: &NativeAPIInitContext) {
+    ctx.define_api(internal::get_framework_css);
+    ctx.define_api(util::execute_java_script);
+    ctx.define_api(audio::get_fft_data);
+    ctx.define_api(app::restart);
+    ctx.define_api(app::read_config);
+    ctx.define_api(app::write_config);
+    ctx.define_api(app::reload_ignore_cache);
+    ctx.define_api(app::version);
+    ctx.define_api(app::get_ncm_path);
+    ctx.define_api(app::show_console);
+    ctx.define_api(app::exec);
+    ctx.define_api(app::restart_plugins);
+    ctx.define_api(app::set_rounded_corner);
+    ctx.define_api(fs::read_dir);
+    ctx.define_api(fs::read_file);
+    ctx.define_api(fs::read_file_text);
+    ctx.define_api(fs::rename);
+    ctx.define_api(fs::exists);
+    ctx.define_api(fs::write_file);
+    ctx.define_api(fs::write_file_text);
+    ctx.define_api(fs::remove);
+    ctx.define_api(fs::mkdir);
+    ctx.define_api(fs::watch_directory);
+}
 
 pub(super) fn threaded_promise<T, F>(
     this: CefV8Value,
@@ -86,30 +113,6 @@ where
     }
     let result = callback()?;
     Ok(result.try_into()?)
-}
-
-fn init_native_api(ctx: &NativeAPIInitContext) {
-    ctx.define_api(internal::get_framework_css);
-    ctx.define_api(util::execute_java_script);
-    ctx.define_api(app::restart);
-    ctx.define_api(app::read_config);
-    ctx.define_api(app::write_config);
-    ctx.define_api(app::reload_ignore_cache);
-    ctx.define_api(app::version);
-    ctx.define_api(app::get_ncm_path);
-    ctx.define_api(app::show_console);
-    ctx.define_api(app::exec);
-    ctx.define_api(app::restart_plugins);
-    ctx.define_api(fs::read_dir);
-    ctx.define_api(fs::read_file);
-    ctx.define_api(fs::read_file_text);
-    ctx.define_api(fs::rename);
-    ctx.define_api(fs::exists);
-    ctx.define_api(fs::write_file);
-    ctx.define_api(fs::write_file_text);
-    ctx.define_api(fs::remove);
-    ctx.define_api(fs::mkdir);
-    ctx.define_api(fs::watch_directory);
 }
 
 pub struct NativeAPIDesc {

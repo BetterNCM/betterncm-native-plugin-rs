@@ -112,7 +112,9 @@ export namespace app {
 	 * @param enable 是否开启
 	 * @returns 是否成功
 	 */
-	export async function setRoundedCorner(enable = true) {}
+	export async function setRoundedCorner(enable = true) {
+		betterncm_native.app.setRoundedCorner(enable);
+	}
 
 	/**
 	 * 打开一个选择文件对话框

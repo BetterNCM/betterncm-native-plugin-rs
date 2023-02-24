@@ -70,6 +70,7 @@ declare global {
 			export function restart(): void;
 			export function getNCMPath(): string;
 			export function showConsole(show: boolean): void;
+			export function setRoundedCorner(show: boolean): void;
 			export function readConfig(
 				key: string,
 				defaultValue: string,

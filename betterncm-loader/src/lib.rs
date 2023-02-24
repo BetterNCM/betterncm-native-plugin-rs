@@ -1,4 +1,5 @@
 mod api;
+mod audio;
 mod cef_hooks;
 mod exception;
 mod http_api;
@@ -109,7 +110,11 @@ pub static PROCESS_TYPE: Lazy<ProcessType> = Lazy::new(|| {
     }
 });
 
+pub static PARENT_PID: Lazy<u32> = Lazy::new(utils::get_parent_pid);
+
 fn initialize(dll_module: HINSTANCE) -> anyhow::Result<()> {
+    // 获取 父进程 PID
+    let _ = *PARENT_PID;
     if *PROCESS_TYPE == ProcessType::Main {
         #[cfg(debug_assertions)]
         open_console();
@@ -118,6 +123,13 @@ fn initialize(dll_module: HINSTANCE) -> anyhow::Result<()> {
 
         info!("当前数据目录：{:?}", std::env::current_dir());
         plugins::unzip_plugins();
+        audio::init_audio_capture();
+    }
+
+    if *PROCESS_TYPE == ProcessType::Renderer {
+        #[cfg(debug_assertions)]
+        open_console();
+        audio::init_audio_capture();
     }
 
     unsafe {
@@ -128,6 +140,7 @@ fn initialize(dll_module: HINSTANCE) -> anyhow::Result<()> {
         http_api::init_http_server()?;
 
         info!("MWBNCM 初始化成功！");
+        info!("父进程 ID: {}", *PARENT_PID);
 
         DisableThreadLibraryCalls(dll_module);
     }

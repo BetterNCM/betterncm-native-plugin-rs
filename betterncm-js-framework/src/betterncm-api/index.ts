@@ -33,6 +33,7 @@ const BetterNCM = {
 	tests,
 	reload,
 	betterncmFetch,
+	isMRBNCM: true,
 };
 
 export { fs, app, ncm, utils, tests, reload };
