@@ -620,10 +620,11 @@ mod hook {
             command_line,
             cef::CefString::from("ignore-certificate-errors").to_raw(),
         );
-        command_line.append_switch.unwrap()(
-            command_line,
-            cef::CefString::from("in-process-gpu").to_raw(),
-        );
+        // 单进程 GPU，渲染进程和 GPU 进程合并，虽然可以减少内存用量，但是容易产生闪动
+        // command_line.append_switch.unwrap()(
+        //     command_line,
+        //     cef::CefString::from("in-process-gpu").to_raw(),
+        // );
         // 如果是单进程，使用 DevTools 进行 debugger; 断点测试时会卡住整个进程
         // command_line.append_switch.unwrap()(
         //     command_line,
