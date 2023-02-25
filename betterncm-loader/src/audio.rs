@@ -282,7 +282,7 @@ fn renderer_audio_thread() {
                                     fft_resolution,
                                     processor: ProcessorConfig {
                                         sampling_rate: audio_info.sps,
-                                        frequency_bounds: [20, audio_info.sps as usize / 2],
+                                        frequency_bounds: [50, audio_info.sps as usize / 2],
                                         ..Default::default()
                                     },
                                     gravity: None,
