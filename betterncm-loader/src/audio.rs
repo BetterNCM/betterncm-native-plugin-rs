@@ -51,16 +51,54 @@ pub enum AudioThreadMessage {
     // Stop,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(u32)]
+pub enum AudioFormat {
+    Unknown = 0,
+    PCMInt32 = 0b1,
+    PCMFloat32 = 0b10,
+    PCMInt16 = 0b100,
+    PCMInt8 = 0b1000,
+}
+
+impl Default for AudioFormat {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+impl From<u32> for AudioFormat {
+    fn from(value: u32) -> Self {
+        match value {
+            0b1 => Self::PCMInt32,
+            0b10 => Self::PCMFloat32,
+            0b100 => Self::PCMInt16,
+            0b1000 => Self::PCMInt8,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct AudioInfo {
-    pub sps: u32,
-    pub bps: u16,
-    pub ca: u16,
+    pub format: AudioFormat,
+    pub samples_per_sec: u32,
+    pub channel_amount: u16,
 }
 
 impl AudioInfo {
     fn has_zero(&self) -> bool {
-        self.bps == 0 || self.sps == 0 || self.ca == 0
+        self.format == AudioFormat::Unknown || self.samples_per_sec == 0 || self.channel_amount == 0
+    }
+
+    fn get_bits_per_sample(&self) -> usize {
+        match self.format {
+            AudioFormat::Unknown => 0,
+            AudioFormat::PCMInt32 => 32,
+            AudioFormat::PCMFloat32 => 32,
+            AudioFormat::PCMInt16 => 16,
+            AudioFormat::PCMInt8 => 8,
+        }
     }
 }
 
@@ -86,9 +124,9 @@ pub fn main_audio_thread() {
             .unwrap();
     server.set_nonblocking(true).unwrap();
     let mut current_audio_info = AudioInfo {
-        sps: 0,
-        bps: 0,
-        ca: 0,
+        format: AudioFormat::Unknown,
+        samples_per_sec: 0,
+        channel_amount: 0,
     };
     let mut clients: Vec<LocalSocketStream> = Vec::with_capacity(4);
     while let Ok(msg) = rx.recv() {
@@ -100,9 +138,10 @@ pub fn main_audio_thread() {
             if !current_audio_info.has_zero() {
                 for client in &mut clients {
                     let _ = client.write_u32::<LE>(SET_AUDIO_INFO_MAGIC);
-                    let _ = client.write_u32::<LE>(current_audio_info.sps);
-                    let _ = client.write_u16::<LE>(current_audio_info.bps);
-                    let _ = client.write_u16::<LE>(current_audio_info.ca);
+                    let _ = client.write_u32::<LE>(current_audio_info.format as u32);
+                    let _ = client.write_u32::<LE>(current_audio_info.samples_per_sec);
+                    let _ = client.write_u16::<LE>(current_audio_info.channel_amount);
+                    let _ = client.flush();
                 }
             }
         }
@@ -110,21 +149,24 @@ pub fn main_audio_thread() {
             if !audio_info.has_zero() {
                 for client in &mut clients {
                     let _ = client.write_u32::<LE>(SET_AUDIO_INFO_MAGIC);
-                    let _ = client.write_u32::<LE>(audio_info.sps);
-                    let _ = client.write_u16::<LE>(audio_info.bps);
-                    let _ = client.write_u16::<LE>(audio_info.ca);
+                    let _ = client.write_u32::<LE>(current_audio_info.format as u32);
+                    let _ = client.write_u32::<LE>(audio_info.samples_per_sec);
+                    let _ = client.write_u16::<LE>(audio_info.channel_amount);
+                    let _ = client.flush();
                 }
             }
         };
         match msg {
             AudioThreadMessage::PushAudioBuffer(buf) => {
-                // info!("接收到新音频缓冲 {}", buf.len());
+                // debug!("接收到新音频缓冲 {}", buf.len());
+                send_audio_info(&current_audio_info);
                 for client in &mut clients {
                     let _ = client.write_u32::<LE>(PUSH_AUDIO_BUFFER_MAGIC);
                     let _ = client.write_u32::<LE>(buf.len() as _);
                     let _ = client.write_all(&buf);
                     let _ = client.flush();
                 }
+                // debug!("音频缓冲发送完毕");
             }
             AudioThreadMessage::SetAudioInfo(info) => {
                 info!("当前音频信息为 {:#?}", info);
@@ -144,7 +186,9 @@ fn renderer_audio_thread() {
     // let (sx, rx) = std::sync::mpsc::channel::<Vec<f32>>();
     // let _ = std::thread::Builder::new()
     //     .name("bncm-audio-fft-thread".into())
-    //     .spawn(move || while let Ok(buf) = rx.recv() {});
+    //     .spawn(move || while let Ok(buf) = rx.recv() {
+
+    //     });
     let notifier = AUDIO_FFT_CHANGED_NOTIFIER.clone();
     while retried < 5 {
         if get_fft_counter() == 0 {
@@ -167,9 +211,9 @@ fn renderer_audio_thread() {
                 info!("已连接到主进程音频信息流！");
                 let mut stream = Stream::new(StreamConfig::default());
                 let mut audio_info = AudioInfo {
-                    sps: 0,
-                    bps: 0,
-                    ca: 0,
+                    format: AudioFormat::Unknown,
+                    samples_per_sec: 0,
+                    channel_amount: 0,
                 };
                 while get_fft_counter() != 0 {
                     let magic = client.read_u32::<LE>().unwrap_or_default();
@@ -180,26 +224,32 @@ fn renderer_audio_thread() {
                             let _ = client.read_exact(&mut raw_buf);
 
                             if !audio_info.has_zero() {
-                                let samples = raw_buf.len() / (audio_info.bps as usize / 8);
-                                let mut buf = Vec::with_capacity(samples);
+                                let samples =
+                                    raw_buf.len() / (audio_info.get_bits_per_sample() / 8);
+                                let mut buf: Vec<f32> = Vec::with_capacity(samples);
                                 let mut cur = Cursor::new(raw_buf);
-                                match audio_info.bps {
-                                    32 => {
+                                match audio_info.format {
+                                    AudioFormat::PCMFloat32 => {
+                                        while let Ok(v) = cur.read_f32::<LE>() {
+                                            buf.push(v);
+                                        }
+                                    }
+                                    AudioFormat::PCMInt32 => {
                                         const HARF_I32: f32 = i32::MAX as f32;
                                         while let Ok(v) = cur.read_i32::<LE>() {
-                                            buf.push(v as f32 / HARF_I32);
+                                            buf.push((v as f32 / HARF_I32) as _);
                                         }
                                     }
-                                    16 => {
+                                    AudioFormat::PCMInt16 => {
                                         const HARF_I16: f32 = i16::MAX as f32;
-                                        while let Ok(v) = cur.read_u16::<LE>() {
-                                            buf.push((v as f32 - HARF_I16) / HARF_I16);
+                                        while let Ok(v) = cur.read_i16::<LE>() {
+                                            buf.push((v as f32 / HARF_I16) as _);
                                         }
                                     }
-                                    8 => {
+                                    AudioFormat::PCMInt8 => {
                                         const HARF_I8: f32 = i8::MAX as f32;
                                         while let Ok(v) = cur.read_i8() {
-                                            buf.push(v as f32 / HARF_I8);
+                                            buf.push((v as f32 / HARF_I8) as _);
                                         }
                                     }
                                     _ => {
@@ -249,7 +299,7 @@ fn renderer_audio_thread() {
                                 let frames = frames_fft.len() as f64;
                                 let total_time = frames * 1. / refresh_rate;
 
-                                // info!("已计算 FFT 帧 {frames}");
+                                // debug!("已计算 FFT 帧 {frames}");
 
                                 loop {
                                     let et = t.elapsed().as_secs_f64();
@@ -271,18 +321,30 @@ fn renderer_audio_thread() {
                             }
                         }
                         SET_AUDIO_INFO_MAGIC => {
-                            audio_info.sps = client.read_u32::<LE>().unwrap_or_default();
-                            audio_info.bps = client.read_u16::<LE>().unwrap_or_default();
-                            audio_info.ca = client.read_u16::<LE>().unwrap_or_default();
-                            if !audio_info.has_zero() {
-                                info!("接收到了音频信息 {:#?}", audio_info);
-                                let fft_resolution = AUDIO_FFT_DATA_LEN * 2;
+                            let mut new_audio_info = AudioInfo {
+                                format: AudioFormat::Unknown,
+                                samples_per_sec: 0,
+                                channel_amount: 0,
+                            };
+                            new_audio_info.format =
+                                client.read_u32::<LE>().unwrap_or_default().into();
+                            new_audio_info.samples_per_sec =
+                                client.read_u32::<LE>().unwrap_or_default();
+                            new_audio_info.channel_amount =
+                                client.read_u16::<LE>().unwrap_or_default();
+                            if !new_audio_info.has_zero() && new_audio_info != audio_info {
+                                audio_info = new_audio_info;
+                                info!("音频信息已更新 {:#?}", audio_info);
+                                const FFT_RESOLUTION: usize = AUDIO_FFT_DATA_LEN * 2;
                                 stream = Stream::new(StreamConfig {
-                                    channel_count: audio_info.ca,
-                                    fft_resolution,
+                                    channel_count: audio_info.channel_amount,
+                                    fft_resolution: FFT_RESOLUTION,
                                     processor: ProcessorConfig {
-                                        sampling_rate: audio_info.sps,
-                                        frequency_bounds: [50, audio_info.sps as usize / 2],
+                                        sampling_rate: audio_info.samples_per_sec,
+                                        frequency_bounds: [
+                                            50,
+                                            audio_info.samples_per_sec as usize / 2,
+                                        ],
                                         ..Default::default()
                                     },
                                     gravity: None,
@@ -314,12 +376,12 @@ pub fn init_audio_capture() {
     if *PROCESS_TYPE == ProcessType::Main {
         // 主进程处理捕获的音频流并转发给子进程
         let _ = std::thread::Builder::new()
-            .name("bncm-audio-thread".into())
+            .name("bncm-audio-main-thread".into())
             .spawn(main_audio_thread);
     } else if *PROCESS_TYPE == ProcessType::Renderer {
         // 渲染进程接收来自主进程的音频信息
         let _ = std::thread::Builder::new()
-            .name("bncm-audio-thread".into())
+            .name("bncm-audio-renderer-thread".into())
             .spawn(renderer_audio_thread);
     }
 }

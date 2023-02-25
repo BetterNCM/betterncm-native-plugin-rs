@@ -36,7 +36,7 @@ pub fn open_console() {
     let _ = tracing::subscriber::set_global_default(
         tracing_subscriber::fmt()
             .with_max_level(Level::DEBUG)
-            .pretty()
+            // .pretty()
             .with_thread_names(true)
             .finish(),
     );
