@@ -175,27 +175,122 @@ mod dsound_hook {
         if result.is_ok() {
             info!("创建了音频缓冲区");
 
+            fn get_format(flag: u32) -> &'static str {
+                match flag {
+                    windows::Win32::Media::Audio::WAVE_FORMAT_PCM => {
+                        "WAVE_FORMAT_PCM/WAVE_FORMAT_1M08"
+                    }
+                    windows::Win32::Media::Audio::WAVE_FORMAT_1M16 => "WAVE_FORMAT_1M16",
+                    windows::Win32::Media::Audio::WAVE_FORMAT_1S08 => "WAVE_FORMAT_1S08",
+                    windows::Win32::Media::Audio::WAVE_FORMAT_1S16 => "WAVE_FORMAT_1S16",
+                    windows::Win32::Media::Audio::WAVE_FORMAT_2M08 => "WAVE_FORMAT_2M08",
+                    windows::Win32::Media::Audio::WAVE_FORMAT_2M16 => "WAVE_FORMAT_2M16",
+                    windows::Win32::Media::Audio::WAVE_FORMAT_2S08 => "WAVE_FORMAT_2S08",
+                    windows::Win32::Media::Audio::WAVE_FORMAT_2S16 => "WAVE_FORMAT_2S16",
+                    windows::Win32::Media::Audio::WAVE_FORMAT_4M08 => {
+                        "WAVE_FORMAT_4M08/WAVE_FORMAT_44M08"
+                    }
+                    windows::Win32::Media::Audio::WAVE_FORMAT_4M16 => {
+                        "WAVE_FORMAT_4M16/WAVE_FORMAT_44M16"
+                    }
+                    windows::Win32::Media::Audio::WAVE_FORMAT_4S08 => {
+                        "WAVE_FORMAT_4S08/WAVE_FORMAT_44S08"
+                    }
+                    windows::Win32::Media::Audio::WAVE_FORMAT_4S16 => {
+                        "WAVE_FORMAT_4S16/WAVE_FORMAT_44S16"
+                    }
+                    windows::Win32::Media::Audio::WAVE_FORMAT_48M08 => "WAVE_FORMAT_48M08",
+                    windows::Win32::Media::Audio::WAVE_FORMAT_48M16 => "WAVE_FORMAT_48M16",
+                    windows::Win32::Media::Audio::WAVE_FORMAT_48S08 => "WAVE_FORMAT_48S08",
+                    windows::Win32::Media::Audio::WAVE_FORMAT_48S16 => "WAVE_FORMAT_48S16",
+                    windows::Win32::Media::Audio::WAVE_FORMAT_96M08 => "WAVE_FORMAT_96M08",
+                    windows::Win32::Media::Audio::WAVE_FORMAT_96M16 => "WAVE_FORMAT_96M16",
+                    windows::Win32::Media::Audio::WAVE_FORMAT_96S08 => "WAVE_FORMAT_96S08",
+                    windows::Win32::Media::Audio::WAVE_FORMAT_96S16 => "WAVE_FORMAT_96S16",
+                    _ => "UNKNOWN",
+                }
+            }
+
+            fn get_sub_format(flag: windows::core::GUID) -> &'static str {
+                use windows::core::GUID;
+                const KSDATAFORMAT_SUBTYPE_PCM: GUID =
+                    GUID::from_u128(0x00000001_0000_0010_8000_00aa00389b71);
+                const KSDATAFORMAT_SUBTYPE_IEEE_FLOAT: GUID =
+                    GUID::from_u128(0x00000003_0000_0010_8000_00aa00389b71);
+                const KSDATAFORMAT_SUBTYPE_DRM: GUID =
+                    GUID::from_u128(0x00000009_0000_0010_8000_00aa00389b71);
+                const KSDATAFORMAT_SUBTYPE_ALAW: GUID =
+                    GUID::from_u128(0x00000006_0000_0010_8000_00aa00389b71);
+                const KSDATAFORMAT_SUBTYPE_MULAW: GUID =
+                    GUID::from_u128(0x00000007_0000_0010_8000_00aa00389b71);
+                const KSDATAFORMAT_SUBTYPE_ADPCM: GUID =
+                    GUID::from_u128(0x00000002_0000_0010_8000_00aa00389b71);
+                const KSDATAFORMAT_SUBTYPE_MPEG: GUID =
+                    GUID::from_u128(0x00000050_0000_0010_8000_00aa00389b71);
+                match flag {
+                    KSDATAFORMAT_SUBTYPE_PCM => "KSDATAFORMAT_SUBTYPE_PCM",
+                    KSDATAFORMAT_SUBTYPE_IEEE_FLOAT => "KSDATAFORMAT_SUBTYPE_IEEE_FLOAT",
+                    KSDATAFORMAT_SUBTYPE_DRM => "KSDATAFORMAT_SUBTYPE_DRM",
+                    KSDATAFORMAT_SUBTYPE_ALAW => "KSDATAFORMAT_SUBTYPE_ALAW",
+                    KSDATAFORMAT_SUBTYPE_MULAW => "KSDATAFORMAT_SUBTYPE_MULAW",
+                    KSDATAFORMAT_SUBTYPE_ADPCM => "KSDATAFORMAT_SUBTYPE_ADPCM",
+                    KSDATAFORMAT_SUBTYPE_MPEG => "KSDATAFORMAT_SUBTYPE_MPEG",
+                    _ => "UNKNOWN",
+                }
+            }
+
             if let Some(Some(ppdsbuffer)) = ppdsbuffer.as_mut() {
                 if let Some(wfx) = pcdsbufferdesc.lpwfxFormat.as_ref() {
                     if wfx.wFormatTag == 0xFFFE {
+                        // WAVE_FORMAT_EXTENSIBLE
                         // 扩展格式
                         let wfx: &WAVEFORMATEXTENSIBLE = std::mem::transmute(wfx);
+                        info!("缓冲区子格式为：{}", get_sub_format(wfx.SubFormat));
                         if let Some(sx) = crate::audio::get_audio_thread_sender() {
                             // dbg!(wfx.SubFormat);
+                            let format =
+                                match (wfx.Format.wBitsPerSample, get_sub_format(wfx.SubFormat)) {
+                                    (32, "KSDATAFORMAT_SUBTYPE_PCM") => {
+                                        crate::audio::AudioFormat::PCMInt32
+                                    }
+                                    (16, "KSDATAFORMAT_SUBTYPE_PCM") => {
+                                        crate::audio::AudioFormat::PCMInt16
+                                    }
+                                    (8, "KSDATAFORMAT_SUBTYPE_PCM") => {
+                                        crate::audio::AudioFormat::PCMInt8
+                                    }
+                                    (32, "KSDATAFORMAT_SUBTYPE_IEEE_FLOAT") => {
+                                        crate::audio::AudioFormat::PCMFloat32
+                                    }
+                                    _ => crate::audio::AudioFormat::Unknown,
+                                };
                             let _ = sx.send(crate::audio::AudioThreadMessage::SetAudioInfo(
                                 crate::audio::AudioInfo {
-                                    sps: wfx.Format.nSamplesPerSec,
-                                    bps: wfx.Format.wBitsPerSample,
-                                    ca: wfx.Format.nChannels,
+                                    format,
+                                    samples_per_sec: wfx.Format.nSamplesPerSec,
+                                    channel_amount: wfx.Format.nChannels,
                                 },
                             ));
                         }
                     } else if let Some(sx) = crate::audio::get_audio_thread_sender() {
+                        info!("缓冲区格式为：{}", get_format(wfx.wFormatTag as _));
+                        let format = match (wfx.wBitsPerSample, get_format(wfx.wFormatTag as _)) {
+                            (32, "WAVE_FORMAT_PCM/WAVE_FORMAT_1M08") => {
+                                crate::audio::AudioFormat::PCMInt32
+                            }
+                            (16, "WAVE_FORMAT_PCM/WAVE_FORMAT_1M08") => {
+                                crate::audio::AudioFormat::PCMInt16
+                            }
+                            (8, "WAVE_FORMAT_PCM/WAVE_FORMAT_1M08") => {
+                                crate::audio::AudioFormat::PCMInt8
+                            }
+                            _ => crate::audio::AudioFormat::Unknown,
+                        };
                         let _ = sx.send(crate::audio::AudioThreadMessage::SetAudioInfo(
                             crate::audio::AudioInfo {
-                                sps: wfx.nSamplesPerSec,
-                                bps: wfx.wBitsPerSample,
-                                ca: wfx.nChannels,
+                                format,
+                                samples_per_sec: wfx.nSamplesPerSec,
+                                channel_amount: wfx.nChannels,
                             },
                         ));
                     }
