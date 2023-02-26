@@ -121,18 +121,18 @@ declare module "betterncm-api/fs" {
 		 * @param dirPath 文件夹的路径
 		 * @returns 是否成功
 		 */
-		function mkdir(dirPath: string): Promise<boolean>;
+		function mkdir(dirPath: string): Promise<void>;
 		/**
 		 * 检查指定路径下是否存在文件或文件夹
 		 * @param path 文件或文件夹的路径
 		 * @returns 是否存在
 		 */
-		function exists(path: string): Promise<boolean>;
+		function exists(path: string): boolean;
 		/**
 		 * 删除指定路径下的文件或文件夹
 		 * @param path 指定的文件或文件夹路径
 		 */
-		function remove(path: string): Promise<boolean>;
+		function remove(path: string): Promise<void>;
 	}
 }
 declare module "betterncm-api/app" {
@@ -148,12 +148,12 @@ declare module "betterncm-api/app" {
 			cmd: string,
 			elevate?: boolean,
 			showWindow?: boolean,
-		): Promise<boolean>;
+		): Promise<void>;
 		/**
 		 * 获取当前 BetterNCM 的版本号
 		 * @returns 当前 BetterNCM 的版本号
 		 */
-		function getBetterNCMVersion(): Promise<string>;
+		function getBetterNCMVersion(): string;
 		/**
 		 * 全屏截图
 		 * @returns 截图的 Blob 数据
@@ -171,7 +171,7 @@ declare module "betterncm-api/app" {
 		 * 重新解压所有插件
 		 * @returns 是否成功
 		 */
-		function reloadPlugins(): Promise<boolean>;
+		function reloadPlugins(): Promise<void>;
 		/**
 		 * 获取目前 BetterNCM 数据目录
 		 * @returns 数据目录路径
@@ -190,23 +190,23 @@ declare module "betterncm-api/app" {
 		 * @param value 值
 		 * @returns 是否成功
 		 */
-		function writeConfig(key: string, value: string): Promise<boolean>;
+		function writeConfig(key: string, value: string): Promise<void>;
 		/**
 		 * 获取网易云安装目录
 		 * @returns 安装目录
 		 */
-		function getNCMPath(): Promise<string>;
+		function getNCMPath(): string;
 		/**
 		 * 打开网易云主进程的Console
 		 * @returns 是否成功
 		 */
-		function showConsole(): Promise<boolean>;
+		function showConsole(show?: boolean): void;
 		/**
 		 * 设置Win11 DWM圆角开启状态
 		 * @param enable 是否开启
 		 * @returns 是否成功
 		 */
-		function setRoundedCorner(enable?: boolean): Promise<boolean>;
+		function setRoundedCorner(enable?: boolean): Promise<void>;
 		/**
 		 * 打开一个选择文件对话框
 		 * @param filter 要筛选的文件类型
@@ -285,42 +285,6 @@ declare module "betterncm-api/tests" {
 		function success(message: string): Promise<void>;
 	}
 }
-declare module "betterncm-api/index" {
-	/**
-	 * @fileoverview
-	 * BetterNCM 插件开发接口
-	 *
-	 * 插件作者可以通过此处的接口来和界面或程序外部交互
-	 */
-	import "betterncm-api/react";
-	import { fs } from "betterncm-api/fs";
-	import { app } from "betterncm-api/app";
-	import { ncm } from "betterncm-api/ncm";
-	import { tests } from "betterncm-api/tests";
-	import { utils } from "betterncm-api/utils";
-	/**
-	 * 包含加载动画的重载
-	 */
-	function reload(): void;
-	const BetterNCM: {
-		fs: typeof fs;
-		app: typeof app;
-		ncm: typeof ncm;
-		utils: typeof utils;
-		tests: typeof tests;
-		reload: typeof reload;
-		betterncmFetch: (
-			relPath: string,
-			option?:
-				| (RequestInit & {
-						ignoreApiKey?: boolean | undefined;
-				  })
-				| undefined,
-		) => Promise<Response>;
-	};
-	export { fs, app, ncm, utils, tests, reload };
-	export default BetterNCM;
-}
 declare module "plugin" {
 	export interface InjectFile {
 		file: string;
@@ -338,6 +302,8 @@ declare module "plugin" {
 		code: string;
 	}
 	export interface PluginManifest {
+		native_plugin: string | undefined;
+		require_restart: boolean | undefined;
 		manifest_version: number;
 		name: string;
 		version: string;
@@ -420,6 +386,12 @@ declare module "plugin-manager/index" {
 }
 declare module "loader" {
 	export let loadedPlugins: typeof window.loadedPlugins;
+	export namespace splashScreen {
+		function hideSplashScreen(): void;
+		function showSplashScreen(): Promise<void>;
+		function setSplashScreenText(text: string): void;
+		function setSplashScreenProgress(progress: number): void;
+	}
 	/**
 	 * 禁用安全模式，将会在下一次重载生效
 	 *
@@ -428,6 +400,7 @@ declare module "loader" {
 	 * @see {@link enableSafeMode}
 	 */
 	export function disableSafeMode(): Promise<void>;
+	export function genRandomString(length: number): string;
 	/**
 	 * 启用安全模式，将会在下一次重载生效
 	 *
@@ -453,8 +426,45 @@ declare module "loader" {
 		constructor(message?: string, options?: ErrorOptions);
 		toString(): string;
 	}
-	export const isSafeMode: () => boolean;
-	export const getLoadError: () => string;
+	export const isSafeMode: () => Promise<boolean>;
+	export const getLoadError: () => Promise<string>;
+}
+declare module "betterncm-api/index" {
+	/**
+	 * @fileoverview
+	 * BetterNCM 插件开发接口
+	 *
+	 * 插件作者可以通过此处的接口来和界面或程序外部交互
+	 */
+	import "betterncm-api/react";
+	import { fs } from "betterncm-api/fs";
+	import { app } from "betterncm-api/app";
+	import { ncm } from "betterncm-api/ncm";
+	import { tests } from "betterncm-api/tests";
+	import { utils } from "betterncm-api/utils";
+	/**
+	 * 包含加载动画的重载
+	 */
+	function reload(): void;
+	const BetterNCM: {
+		fs: typeof fs;
+		app: typeof app;
+		ncm: typeof ncm;
+		utils: typeof utils;
+		tests: typeof tests;
+		reload: typeof reload;
+		betterncmFetch: (
+			relPath: string,
+			option?:
+				| (RequestInit & {
+						ignoreApiKey?: boolean | undefined;
+				  })
+				| undefined,
+		) => Promise<Response>;
+		isMRBNCM: boolean;
+	};
+	export { fs, app, ncm, utils, tests, reload };
+	export default BetterNCM;
 }
 declare module "index" {
 	import "betterncm-api/index";

@@ -22,10 +22,13 @@ export namespace fs {
 	 * @param filePath 需要读取的文件路径
 	 * @returns 对应文件的文本形式
 	 */
-	export function readFileText(filePath: string): Promise<string> {
-		return new Promise((resolve, reject) => {
-			betterncm_native.fs.readFileText(filePath, resolve, reject);
-		});
+	export async function readFileText(filePath: string): Promise<string> {
+		try {
+			const v = await readFile(filePath);
+			return await v.text();
+		} catch {
+			return "";
+		}
 	}
 
 	/**
@@ -34,13 +37,13 @@ export namespace fs {
 	 * @returns blob
 	 */
 	export async function readFile(filePath: string): Promise<Blob> {
-		return new Promise((resolve, reject) => {
-			betterncm_native.fs.readFile(filePath, resolve, reject);
-		}).then((v: number[]) => {
-			const data = new Uint8Array(v);
-			const blob = new Blob([data]);
-			return blob;
-		});
+		try {
+			return betterncmFetch(`/api/fs/read_file?path=${e(filePath)}`).then(
+				(v) => v.blob(),
+			);
+		} catch {
+			return new Blob();
+		}
 	}
 
 	/**
@@ -83,10 +86,8 @@ export namespace fs {
 	export function writeFileText(
 		filePath: string,
 		content: string,
-	): Promise<void> {
-		return new Promise((resolve, reject) => {
-			betterncm_native.fs.writeFileText(filePath, content, resolve, reject);
-		});
+	): Promise<boolean> {
+		return writeFile(filePath, content);
 	}
 
 	/**
@@ -98,15 +99,12 @@ export namespace fs {
 	export async function writeFile(
 		filePath: string,
 		content: string | Blob,
-	): Promise<void> {
-		if (typeof content === "string") {
-			return writeFileText(filePath, content);
-		} else {
-			const data = [...new Uint8Array(await content.arrayBuffer())];
-			return new Promise((resolve, reject) => {
-				betterncm_native.fs.writeFile(filePath, data, resolve, reject);
-			});
-		}
+	): Promise<boolean> {
+		const res = await betterncmFetch(`/api/fs/write_file?path=${e(filePath)}`, {
+			method: "POST",
+			body: content,
+		});
+		return res.ok;
 	}
 
 	/**

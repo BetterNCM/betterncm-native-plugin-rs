@@ -42,6 +42,23 @@ pub fn open_console() {
     );
 }
 
+pub fn clean_trash() {
+    if let Some(home_dir) = dirs::home_dir() {
+        let web_log_path = home_dir.join("AppData/Local/NetEase/CloudMusic/web.log");
+        let _ = std::fs::remove_file(web_log_path);
+        let web_log_path = home_dir.join("AppData/Local/NetEase/CloudMusic/cloudmusic.elog");
+        let _ = std::fs::remove_file(web_log_path);
+        let web_cache_path = home_dir.join("AppData/Local/NetEase/CloudMusic/webapp91/Cache");
+        let _ = std::fs::remove_dir_all(web_cache_path);
+        let cache_path = home_dir.join("AppData/Local/NetEase/CloudMusic/Cache");
+        let _ = std::fs::remove_dir_all(cache_path);
+        let cache_path = home_dir.join("AppData/Local/NetEase/CloudMusic/Log");
+        let _ = std::fs::remove_dir_all(cache_path);
+        let cache_path = home_dir.join("AppData/Local/NetEase/CloudMusic/Temp");
+        let _ = std::fs::remove_dir_all(cache_path);
+    }
+}
+
 #[no_mangle]
 extern "system" fn DllMain(
     dll_module: HINSTANCE,
@@ -75,12 +92,8 @@ extern "system" fn DllMain(
             }
         }
         DLL_PROCESS_DETACH => {
-            info!("正在结束");
             if _reserved.is_null() {
-                if let Some(home_dir) = dirs::home_dir() {
-                    let web_log_path = home_dir.join("AppData/Local/NetEase/CloudMusic/web.log");
-                    let _ = std::fs::remove_file(web_log_path);
-                }
+                clean_trash();
             }
 
             true.into()
@@ -120,10 +133,12 @@ fn initialize(dll_module: HINSTANCE) -> anyhow::Result<()> {
         open_console();
 
         info!("MWBNCM 正在启动！");
+        clean_trash();
 
         info!("当前数据目录：{:?}", std::env::current_dir());
         plugins::unzip_plugins();
         audio::init_audio_capture();
+        http_api::init_http_server()?;
     }
 
     if *PROCESS_TYPE == ProcessType::Renderer {
@@ -136,8 +151,6 @@ fn initialize(dll_module: HINSTANCE) -> anyhow::Result<()> {
         proxy_functions::init_proxy_functions(dll_module)?;
         exception::init_exception();
         cef_hooks::init_cef_hooks()?;
-
-        http_api::init_http_server()?;
 
         info!("MWBNCM 初始化成功！");
         info!("父进程 ID: {}", *PARENT_PID);
