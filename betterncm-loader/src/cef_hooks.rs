@@ -715,6 +715,11 @@ mod hook {
             command_line,
             cef::CefString::from("ignore-certificate-errors").to_raw(),
         );
+        command_line.append_switch_with_value.unwrap()(
+            command_line,
+            cef::CefString::from("disk-cache-size").to_raw(),
+            cef::CefString::from("1").to_raw(),
+        );
         // 单进程 GPU，渲染进程和 GPU 进程合并，虽然可以减少内存用量，但是容易产生闪动
         // command_line.append_switch.unwrap()(
         //     command_line,
@@ -748,7 +753,6 @@ mod hook {
                     cef::CefString::from("load-extension").to_raw(),
                     cef::CefString::from(exts.join(",")).to_raw(),
                 );
-
                 command_line.append_argument.unwrap()(
                     command_line,
                     cef::CefString::from(format!("--load-extension={}", exts.join(","))).to_raw(),
@@ -985,11 +989,13 @@ mod hook {
         debug!("正在加载页面 {}", url);
 
         if url.starts_with("orpheus://orpheus/pub/app.html") {
+            let port = crate::http_api::HTTP_SERVER_PORT.load(std::sync::atomic::Ordering::SeqCst);
+            let api_key = crate::http_api::HTTP_SERVER_API_KEY.to_owned();
             let framework_js = include_str!("../resources/framework.js");
             let framework_js = cef::CefString::from(format!(
                 "\
-                const BETTERNCM_API_KEY=\"\";\
-                const BETTERNCM_API_PATH=\"\";\
+                const BETTERNCM_API_KEY=\"{api_key}\";\
+                const BETTERNCM_API_PATH=\"https://localhost:{port}\";\
                 const BETTERNCM_FILES_PATH=\"\";\
                 {}",
                 framework_js

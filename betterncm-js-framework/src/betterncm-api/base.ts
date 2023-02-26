@@ -1,3 +1,4 @@
+const innerFetch = window.fetch;
 export const betterncmFetch = (
 	relPath: string,
 	option?: RequestInit & {
@@ -13,5 +14,5 @@ export const betterncmFetch = (
 			headers: { BETTERNCM_API_KEY },
 		};
 	}
-	return fetch(BETTERNCM_API_PATH + relPath, option);
+	return innerFetch(BETTERNCM_API_PATH + relPath, option);
 };

@@ -156,6 +156,7 @@ unsafe extern "system" fn unhandled_exception_filter(info: *const EXCEPTION_POIN
         if _ncm_hwnd.0 != 0 {
             // TODO: 重启网易云
         }
+        crate::clean_trash();
         std::process::abort();
     }
 
