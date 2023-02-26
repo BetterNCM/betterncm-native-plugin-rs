@@ -12,11 +12,13 @@ use tracing::*;
 
 use crate::{ProcessType, PROCESS_TYPE};
 
-const AUDIO_FFT_DATA_LEN: usize = 128;
+const AUDIO_FFT_DATA_LEN: usize = 256;
 
 static mut AUDIO_FFT_DATA: Lazy<Vec<f32>> = Lazy::new(|| vec![0.0; AUDIO_FFT_DATA_LEN]);
 static AUDIO_FFT_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static AUDIO_FFT_CHANGED_NOTIFIER: Lazy<Arc<(Mutex<bool>, Condvar)>> =
+    Lazy::new(|| Arc::new((Mutex::new(false), Condvar::new())));
+static AUDIO_FFT_UPDATE_NOTIFIER: Lazy<Arc<(Mutex<bool>, Condvar)>> =
     Lazy::new(|| Arc::new((Mutex::new(false), Condvar::new())));
 
 pub fn add_fft_counter() {
@@ -37,6 +39,7 @@ pub fn get_fft_counter() -> usize {
 }
 
 pub fn get_fft_data() -> &'static Vec<f32> {
+    AUDIO_FFT_UPDATE_NOTIFIER.clone().1.notify_all();
     unsafe { &AUDIO_FFT_DATA }
 }
 
@@ -183,19 +186,36 @@ pub fn main_audio_thread() {
 fn renderer_audio_thread() {
     let parent_pid = crate::utils::get_parent_pid();
     let mut retried = 0;
-    // let (sx, rx) = std::sync::mpsc::channel::<Vec<f32>>();
-    // let _ = std::thread::Builder::new()
-    //     .name("bncm-audio-fft-thread".into())
-    //     .spawn(move || while let Ok(buf) = rx.recv() {
-
-    //     });
-    let notifier = AUDIO_FFT_CHANGED_NOTIFIER.clone();
+    let (fft_sx, fft_rx) = std::sync::mpsc::channel::<(u128, Vec<f32>)>();
+    let sync_timer = Instant::now();
+    let _ = std::thread::Builder::new()
+        .name("bncm-audio-fft-thread".into())
+        .spawn(move || {
+            info!("正在接收 FFT 计算结果");
+            let update_notifier = AUDIO_FFT_UPDATE_NOTIFIER.clone();
+            let mut cur_time = sync_timer.elapsed().as_millis();
+            while let Ok((fft_time, result)) = fft_rx.recv() {
+                if cur_time <= fft_time {
+                    let fft_data = get_fft_data_mut();
+                    fft_data.copy_from_slice(&result[0..AUDIO_FFT_DATA_LEN]);
+                    if let Ok(locker) = update_notifier.0.lock() {
+                        let _ = update_notifier
+                            .1
+                            .wait_timeout(locker, Duration::from_millis(16));
+                    }
+                    cur_time = sync_timer.elapsed().as_millis();
+                }
+            }
+            info!("FFT 更新线程退出");
+        });
+    let changed_notifier = AUDIO_FFT_CHANGED_NOTIFIER.clone();
+    let update_notifier = AUDIO_FFT_UPDATE_NOTIFIER.clone();
     while retried < 5 {
         if get_fft_counter() == 0 {
             retried = 0;
             // 等待开始接收
             info!("当前没有正在使用 FFT 的插件，等待插件调用中");
-            let _ = notifier.1.wait(notifier.0.lock().unwrap());
+            let _ = changed_notifier.1.wait(changed_notifier.0.lock().unwrap());
         }
         info!("正在连接到主进程音频信息流： mrbncm-main-{parent_pid}");
         let client = interprocess::local_socket::LocalSocketStream::connect(format!(
@@ -293,31 +313,16 @@ fn renderer_audio_thread() {
                                     }
                                 }
 
-                                let t = Instant::now();
-                                let mut last_pos = usize::MAX;
                                 let refresh_rate = stream.config.refresh_rate as f64;
-                                let frames = frames_fft.len() as f64;
-                                let total_time = frames * 1. / refresh_rate;
+                                let frame_time = (1000. / refresh_rate) as u128;
 
-                                // debug!("已计算 FFT 帧 {frames}");
+                                let cur_time = sync_timer.elapsed().as_millis();
 
-                                loop {
-                                    let et = t.elapsed().as_secs_f64();
-                                    let pick_pos = (et * refresh_rate) as usize;
-
-                                    if last_pos != pick_pos {
-                                        last_pos = pick_pos;
-                                        if let Some(result) = frames_fft.get(pick_pos) {
-                                            let fft_data = get_fft_data_mut();
-                                            fft_data
-                                                .copy_from_slice(&result[0..AUDIO_FFT_DATA_LEN]);
-                                        }
-                                    }
-
-                                    if et >= total_time {
-                                        break;
-                                    }
+                                for (i, frame) in frames_fft.into_iter().enumerate() {
+                                    let _ = fft_sx.send((cur_time + i as u128 * frame_time, frame));
                                 }
+
+                                update_notifier.1.notify_all();
                             }
                         }
                         SET_AUDIO_INFO_MAGIC => {
@@ -341,10 +346,8 @@ fn renderer_audio_thread() {
                                     fft_resolution: FFT_RESOLUTION,
                                     processor: ProcessorConfig {
                                         sampling_rate: audio_info.samples_per_sec,
-                                        frequency_bounds: [
-                                            50,
-                                            audio_info.samples_per_sec as usize / 2,
-                                        ],
+                                        // position_normalisation: PositionNormalisation::Exponential,
+                                        frequency_bounds: [50, 22050],
                                         ..Default::default()
                                     },
                                     gravity: None,
