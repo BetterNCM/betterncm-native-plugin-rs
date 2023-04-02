@@ -9,10 +9,14 @@ mod scheme_hijack;
 mod utils;
 
 use once_cell::sync::Lazy;
+use path_absolutize::Absolutize;
 use tracing::*;
 use windows::Win32::{
     Foundation::*,
-    System::{Console::SetConsoleCP, LibraryLoader::DisableThreadLibraryCalls},
+    System::{
+        Console::SetConsoleCP,
+        LibraryLoader::{DisableThreadLibraryCalls, LoadLibraryW},
+    },
     UI::WindowsAndMessaging::{MessageBoxW, MB_OK},
 };
 use windows::{
@@ -44,18 +48,50 @@ pub fn open_console() {
 
 pub fn clean_trash() {
     if let Some(home_dir) = dirs::home_dir() {
-        let web_log_path = home_dir.join("AppData/Local/NetEase/CloudMusic/web.log");
-        let _ = std::fs::remove_file(web_log_path);
-        let web_log_path = home_dir.join("AppData/Local/NetEase/CloudMusic/cloudmusic.elog");
-        let _ = std::fs::remove_file(web_log_path);
-        let web_cache_path = home_dir.join("AppData/Local/NetEase/CloudMusic/webapp91/Cache");
-        let _ = std::fs::remove_dir_all(web_cache_path);
-        let cache_path = home_dir.join("AppData/Local/NetEase/CloudMusic/Cache");
-        let _ = std::fs::remove_dir_all(cache_path);
-        let cache_path = home_dir.join("AppData/Local/NetEase/CloudMusic/Log");
-        let _ = std::fs::remove_dir_all(cache_path);
-        let cache_path = home_dir.join("AppData/Local/NetEase/CloudMusic/Temp");
-        let _ = std::fs::remove_dir_all(cache_path);
+        let app_data_remove_files = ["web.log", "cloudmusic.elog"];
+        let app_data_remove_dirs = [
+            "ad",
+            "update",
+            "Log",
+            "NIM",
+            "NEIM_SYS",
+            "nrtc",
+            "Temp",
+            "Cache",
+            "webapp91/Cache",
+            "webapp91/Code Cache",
+        ];
+        let ncm_path = home_dir.join("AppData/Local/NetEase/CloudMusic");
+        for file_path in app_data_remove_files {
+            let p = ncm_path.join(file_path);
+            let _ = std::fs::remove_file(p);
+        }
+        for dir_path in app_data_remove_dirs {
+            let p = ncm_path.join(dir_path);
+            let _ = std::fs::remove_dir_all(p);
+        }
+        // Crash Data
+        if let Ok(files) = std::fs::read_dir(&ncm_path) {
+            for entry in files.flatten() {
+                if entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("crash_data_")
+                {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
+        // TMP Files
+        if let Ok(files) = std::fs::read_dir(ncm_path.join("webapp91")) {
+            for entry in files.flatten() {
+                let file_name = entry.file_name();
+                let file_name = file_name.to_string_lossy();
+                if file_name.ends_with(".TMP") || file_name.ends_with(".log") {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
     }
 }
 
@@ -78,6 +114,24 @@ extern "system" fn DllMain(
                 if let Some(path) = dirs::home_dir() {
                     let _ = std::env::set_current_dir(path.join(".betterncm"));
                 }
+            }
+
+            let orig_bncm_dll_path = std::path::Path::new("BetterNCMII.dll");
+            let orig_bncm_mark_path = std::path::Path::new("Load_BetterNCMII_In_MRBNCM");
+            if orig_bncm_dll_path.is_file() && orig_bncm_mark_path.is_file() {
+                // 加载 BetterNCM 而不是 MRBNCM
+                warn!("已检测到 BetterNCMII.dll，将加载原版 BetterNCM！");
+
+                if let Ok(orig_bncm_dll_path) = orig_bncm_dll_path.absolutize() {
+                    unsafe {
+                        proxy_functions::init_proxy_functions(dll_module)
+                            .expect("重定向函数失败！");
+                        let orig_bncm_dll_path = orig_bncm_dll_path.to_string_lossy().to_string();
+                        let _ = LoadLibraryW(&HSTRING::from(orig_bncm_dll_path));
+                    }
+                }
+
+                return true.into();
             }
 
             if let Err(e) = initialize(dll_module) {

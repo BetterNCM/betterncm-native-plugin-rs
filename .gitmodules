@@ -1,3 +1,6 @@
 [submodule "libcef"]
 	path = libcef
 	url = https://github.com/BetterNCM/libcef
+[submodule "BetterNCM"]
+	path = BetterNCM
+	url = https://github.com/MicroCBer/BetterNCM.git
