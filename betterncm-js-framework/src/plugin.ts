@@ -128,7 +128,14 @@ export class NCMInjectPlugin extends EventTarget {
 	// rome-ignore lint/suspicious/noExplicitAny: TODO: 工具类参数
 	onConfig(fn: (toolsBox: any) => HTMLElement) {
 		this.addEventListener("config", (evt: CustomEvent) => {
-			this.configViewElement = fn.call(this, evt.detail);
+			try {
+				this.configViewElement = fn.call(this, evt.detail);
+			} catch (err) {
+				console.warn("插件", this.manifest.name, " 的配置组件加载失败", err);
+				const errEl = document.createElement("div");
+				errEl.innerText = `插件配置页面加载出错：\n${err}`;
+				this.configViewElement = errEl;
+			}
 		});
 	}
 	onAllPluginsLoaded(

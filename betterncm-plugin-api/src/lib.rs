@@ -11,6 +11,17 @@ pub enum NativeAPIType {
     V8Value = 4,
 }
 
+#[repr(C)]
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NCMProcessType {
+    Undetected = 0x0,
+    Main = 0x0001,
+    Renderer = 0x10,
+    GpuProcess = 0x100,
+    Utility = 0x1000,
+}
+
 impl NativeAPIType {
     /// # Safety
     /// 不建议手动调用，最好用宏来调用
@@ -53,6 +64,9 @@ pub struct PluginContext {
             >,
         ) -> ::core::ffi::c_int,
     >,
+    betterncmVersion: *const u8,
+    processType: NCMProcessType,
+    ncmVersion: [::core::ffi::c_ushort; 3],
 }
 
 impl PluginContext {
