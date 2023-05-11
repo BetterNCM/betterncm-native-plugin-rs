@@ -39,7 +39,7 @@ pub fn reload_ignore_cache() {
 #[betterncm_native_api(name = "app.version")]
 #[instrument]
 pub fn version() -> anyhow::Result<String> {
-    Ok("1.1.0".into())
+    Ok(crate::BETTERNCM_VERSION.into())
 }
 
 #[betterncm_native_api(name = "app.writeConfig")]
