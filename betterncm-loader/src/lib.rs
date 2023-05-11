@@ -27,6 +27,8 @@ use windows::{
     },
 };
 
+const BETTERNCM_VERSION: &str = "1.2.0";
+
 pub fn debug() {}
 
 pub fn open_console() {
@@ -37,12 +39,18 @@ pub fn open_console() {
     }
 
     let _ = ansi_term::enable_ansi_support();
+    use tracing_subscriber::prelude::*;
     let _ = tracing::subscriber::set_global_default(
-        tracing_subscriber::fmt()
-            .with_max_level(Level::DEBUG)
-            // .pretty()
-            .with_thread_names(true)
-            .finish(),
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::filter::filter_fn(|x| {
+                x.module_path().unwrap_or_default().starts_with("betterncm")
+            }))
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_level(true)
+                    // .pretty()
+                    .with_thread_names(true),
+            ),
     );
 }
 

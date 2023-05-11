@@ -1,10 +1,17 @@
-use std::{collections::HashMap, fs::ReadDir};
+use std::{collections::HashMap, ffi::CString, fs::ReadDir, path::PathBuf};
 
-use crate::utils::unzip_file;
+use crate::{
+    utils::{get_ncm_version, unzip_file},
+    PROCESS_TYPE,
+};
 use once_cell::sync::Lazy;
 use path_absolutize::Absolutize;
 use semver::VersionReq;
 use tracing::*;
+use windows::{
+    core::HSTRING,
+    Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW},
+};
 
 #[derive(serde::Deserialize, Clone, Debug)]
 pub struct HijackEntry {
@@ -39,6 +46,10 @@ pub struct PluginManifest {
     pub hijacks: HashMap<String, HashMap<String, Hijack>>,
     #[serde(default)]
     pub startup_script: String,
+    #[serde(default)]
+    pub native_plugin: String,
+    #[serde(skip)]
+    pub plugin_path: String,
 }
 
 pub static LOADED_PLUGINS: Lazy<Vec<PluginManifest>> = Lazy::new(|| {
@@ -61,6 +72,11 @@ pub static LOADED_PLUGINS: Lazy<Vec<PluginManifest>> = Lazy::new(|| {
                                 std::fs::read_to_string(plugin.path().join("startup_script.js"))
                             {
                                 manifest.startup_script = startup_script;
+                            }
+                            if let Ok(plugin_path) = plugin.path().absolutize() {
+                                manifest.plugin_path = plugin_path.to_string_lossy().to_string();
+                            } else {
+                                manifest.plugin_path = plugin.path().to_string_lossy().to_string();
                             }
                             result.push(manifest);
                         }
@@ -153,6 +169,69 @@ pub fn init_plugins() {
     let _ = &LOADED_PLUGINS;
     // 触发 Lazy 加载请求篡改表
     let _ = &HIJACKS_MAP;
+    let ncm_version = get_ncm_version();
+    let ncm_version = [
+        ncm_version.major as u16,
+        ncm_version.minor as u16,
+        ncm_version.patch as u16,
+    ];
+    // 因为初始化只调用一次，所以此处泄露版本号不会有严重的内存泄露问题
+    let bncm_version = Box::leak(Box::new(CString::new(crate::BETTERNCM_VERSION).unwrap()));
+    // 加载原生插件
+    for native_plugin in LOADED_PLUGINS
+        .iter()
+        .filter(|x| !x.native_plugin.is_empty())
+    {
+        let native_plugin_dll_path = native_plugin.native_plugin.to_owned();
+        tracing::info!("正在加载原生插件 {native_plugin_dll_path}");
+        match unsafe { LoadLibraryW(&HSTRING::from(native_plugin_dll_path.to_owned())) } {
+            Ok(plugin_module) => {
+                let main_func =
+                    unsafe { GetProcAddress(plugin_module, windows::s!("BetterNCMPluginMain")) };
+                if let Some(main_func) = main_func {
+                    // 为了将上下文的内存所有权交由插件自身管理，此处需要泄露结构
+                    // 因为初始化只调用一次，所以此处泄露不会有严重的内存泄露问题
+                    let raw_ctx = Box::leak(Box::new(betterncm_plugin_api::RawPluginAPI {
+                        addNativeAPI: None,
+                        betterncmVersion: bncm_version.as_ptr(),
+                        processType: match *PROCESS_TYPE {
+                            crate::ProcessType::Main => betterncm_plugin_api::NCMProcessType::Main,
+                            crate::ProcessType::Renderer => {
+                                betterncm_plugin_api::NCMProcessType::Renderer
+                            }
+                            crate::ProcessType::GPUProcess => {
+                                betterncm_plugin_api::NCMProcessType::GpuProcess
+                            }
+                            crate::ProcessType::Utility => {
+                                betterncm_plugin_api::NCMProcessType::Utility
+                            }
+                            #[allow(unreachable_patterns)]
+                            _ => betterncm_plugin_api::NCMProcessType::Undetected,
+                        },
+                        ncmVersion: &ncm_version,
+                    }));
+                    let main_func: betterncm_plugin_api::NativePluginMainFunction =
+                        unsafe { core::mem::transmute(main_func) };
+                    // TODO: 增加 C++ 错误捕获
+                    unsafe {
+                        (main_func)(raw_ctx as *mut _ as _);
+                    }
+                } else {
+                    tracing::warn!(
+                        "加载原生插件 {} 失败，错误信息: 无法找到插件入口函数 BetterNCMPluginMain",
+                        native_plugin_dll_path
+                    );
+                }
+            }
+            Err(err) => {
+                tracing::warn!(
+                    "加载原生插件 {} 失败，错误信息: {}",
+                    native_plugin_dll_path,
+                    err
+                );
+            }
+        }
+    }
 }
 
 pub fn unzip_plugins() {
