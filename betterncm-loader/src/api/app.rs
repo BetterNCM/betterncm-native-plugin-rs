@@ -2,6 +2,7 @@ use std::{collections::HashMap, io::Write};
 
 use betterncm_macro::*;
 use cef::*;
+use once_cell::unsync::Lazy;
 use tracing::*;
 use windows::{
     w,
@@ -86,16 +87,23 @@ pub fn read_config(
     });
 }
 
+thread_local! {
+    static NCM_PATH: Lazy<String> = Lazy::new(|| {
+        let exe = std::env::current_exe().unwrap();
+        let exe = exe
+            .parent()
+            .unwrap()
+            .to_string_lossy()
+            .to_string()
+            .replace('\\', "/");
+        exe
+    })
+}
+
 #[betterncm_native_api(name = "app.getNCMPath")]
 #[instrument]
 pub fn get_ncm_path() -> anyhow::Result<String> {
-    let exe = std::env::current_exe().unwrap();
-    let exe = exe
-        .parent()
-        .unwrap()
-        .to_string_lossy()
-        .to_string()
-        .replace('\\', "/");
+    let exe = NCM_PATH.with(|x| x.to_string());
     Ok(exe)
 }
 
