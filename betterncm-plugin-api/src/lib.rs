@@ -7,7 +7,8 @@ pub struct PluginContext(*mut RawPluginAPI);
 
 pub type NativeFunction =
     unsafe extern "C" fn(arg1: *mut *mut ::core::ffi::c_void) -> *mut ::core::ffi::c_char;
-pub type NativePluginMainFunction = unsafe extern "C" fn(ctx: *mut ::core::ffi::c_void) -> ::core::ffi::c_int;
+pub type NativePluginMainFunction =
+    unsafe extern "C" fn(ctx: *mut ::core::ffi::c_void) -> ::core::ffi::c_int;
 
 #[repr(C)]
 pub struct NativeFunctionDescription {
