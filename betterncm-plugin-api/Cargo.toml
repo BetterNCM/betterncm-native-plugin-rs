@@ -6,5 +6,6 @@ edition = "2021"
 
 [dependencies]
 betterncm-macro = { path = "../betterncm-macro" }
+betterncm-plugin-api-sys = { path = "../betterncm-plugin-api-sys" }
 cef = { path = "../cef" }
 cef-sys = { path = "../cef-sys" }

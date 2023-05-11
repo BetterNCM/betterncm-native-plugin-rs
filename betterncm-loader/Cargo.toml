@@ -10,6 +10,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 betterncm-macro = { path = "../betterncm-macro" }
+betterncm-plugin-api = { path = "../betterncm-plugin-api" }
+betterncm-plugin-api-sys = { path = "../betterncm-plugin-api-sys" }
 cef = { path = "../cef" }
 cef-sys = { path = "../cef-sys" }
 

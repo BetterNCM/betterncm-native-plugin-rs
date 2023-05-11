@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub struct CefV8Context(pub(crate) *mut cef_sys::cef_v8context_t);
 
 unsafe impl Send for CefV8Context {}

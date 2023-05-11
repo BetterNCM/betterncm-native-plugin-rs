@@ -1,114 +1,74 @@
-use cef::CefV8Value;
+use std::ffi::CString;
+
+pub use betterncm_plugin_api_sys::{NCMProcessType, NativeAPIType, PluginAPI as RawPluginAPI};
+
+#[repr(transparent)]
+pub struct PluginContext(*mut RawPluginAPI);
+
+type NativeFunction =
+    unsafe extern "C" fn(arg1: *mut *mut ::core::ffi::c_void) -> *mut ::core::ffi::c_char;
 
 #[repr(C)]
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NativeAPIType {
-    Int = 0,
-    Boolean = 1,
-    Double = 2,
-    String = 3,
-    V8Value = 4,
-}
-
-#[repr(C)]
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NCMProcessType {
-    Undetected = 0x0,
-    Main = 0x0001,
-    Renderer = 0x10,
-    GpuProcess = 0x100,
-    Utility = 0x1000,
-}
-
-impl NativeAPIType {
-    /// # Safety
-    /// 不建议手动调用，最好用宏来调用
-    pub unsafe fn into_value(&self, raw_value: *mut ::core::ffi::c_void) -> NativeAPIValue {
-        match self {
-            Self::Int => NativeAPIValue::Int(*(raw_value as *mut ::core::ffi::c_int)),
-            Self::Boolean => NativeAPIValue::Boolean(*(raw_value as *mut ::core::ffi::c_int)),
-            Self::Double => NativeAPIValue::Double(*(raw_value as *mut ::core::ffi::c_double)),
-            Self::String => {
-                NativeAPIValue::String(core::ffi::CStr::from_ptr(raw_value as _).to_str().unwrap())
-            }
-            Self::V8Value => panic!("V8Value unsupported"),
-        }
-    }
-}
-
-#[repr(C)]
-#[allow(dead_code)]
-pub enum NativeAPIValue {
-    Int(::core::ffi::c_int),
-    Boolean(::core::ffi::c_int),
-    Double(::core::ffi::c_double),
-    String(&'static str),
-    V8Value(CefV8Value),
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-#[allow(non_snake_case)]
-pub struct PluginContext {
-    addNativeAPI: ::core::option::Option<
-        unsafe extern "C" fn(
-            args: *const NativeAPIType,
-            argsNum: ::core::ffi::c_int,
-            identifier: *const ::core::ffi::c_char,
-            function: ::core::option::Option<
-                unsafe extern "C" fn(
-                    arg1: *const *mut ::core::ffi::c_void,
-                ) -> *mut ::core::ffi::c_char,
-            >,
-        ) -> ::core::ffi::c_int,
-    >,
-    betterncmVersion: *const u8,
-    processType: NCMProcessType,
-    ncmVersion: [::core::ffi::c_ushort; 3],
+pub struct NativeFunctionDescription {
+    pub function: NativeFunction,
+    pub identifier: &'static str,
+    pub args_num: usize,
 }
 
 impl PluginContext {
     /// # Safety
     /// 不建议手动调用，最好用宏来调用
+    pub unsafe fn from_raw(raw: *mut RawPluginAPI) -> Self {
+        Self(raw)
+    }
+
+    /// # Safety
+    /// 不建议手动调用，最好用宏来调用
     pub unsafe fn add_native_api_raw(
         &self,
-        args: *const NativeAPIType,
+        args: *mut NativeAPIType,
         args_num: ::core::ffi::c_int,
         identifier: *const ::core::ffi::c_char,
-        function: unsafe extern "C" fn(
-            arg1: *const *mut ::core::ffi::c_void,
-        ) -> *mut ::core::ffi::c_char,
+        function: NativeFunction,
     ) {
-        if let Some(add_native_api) = self.addNativeAPI {
-            (add_native_api)(args, args_num, identifier, Some(function));
+        if let Some(ctx) = self.0.as_ref() {
+            if let Some(add_native_api) = ctx.addNativeAPI {
+                (add_native_api)(args, args_num, identifier, Some(function));
+            }
         }
     }
-}
 
-#[test]
-fn bindgen_test_layout_betterncm_native_plugin_plugin_api() {
-    const UNINIT: ::core::mem::MaybeUninit<PluginContext> = ::core::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
-    assert_eq!(
-        ::core::mem::size_of::<PluginContext>(),
-        8usize,
-        concat!("Size of: ", stringify!(BetterNCMNativePlugin_PluginAPI))
-    );
-    assert_eq!(
-        ::core::mem::align_of::<PluginContext>(),
-        8usize,
-        concat!("Alignment of ", stringify!(BetterNCMNativePlugin_PluginAPI))
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).addNativeAPI) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(BetterNCMNativePlugin_PluginAPI),
-            "::",
-            stringify!(addNativeAPI)
-        )
-    );
+    pub fn add_native_api(&self, func_desc: fn() -> &'static NativeFunctionDescription) {
+        let func_desc = (func_desc)();
+        if let Ok(identifier) = CString::new(func_desc.identifier) {
+            let mut args = Box::new([NativeAPIType::V8Value; 100]);
+            unsafe {
+                self.add_native_api_raw(
+                    args.as_mut_ptr(),
+                    func_desc.args_num as _,
+                    identifier.as_c_str().as_ptr(),
+                    func_desc.function,
+                );
+            }
+        }
+    }
+
+    pub fn with_native_api(self, func_desc: fn() -> &'static NativeFunctionDescription) -> Self {
+        self.add_native_api(func_desc);
+        self
+    }
+
+    pub fn add_native_apis(&self, func_desc: &[fn() -> &'static NativeFunctionDescription]) {
+        for func_desc in func_desc {
+            self.add_native_api(*func_desc);
+        }
+    }
+
+    pub fn with_native_apis(
+        self,
+        func_desc: &[fn() -> &'static NativeFunctionDescription],
+    ) -> Self {
+        self.add_native_apis(func_desc);
+        self
+    }
 }
