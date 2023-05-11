@@ -4,3 +4,4 @@
 [submodule "BetterNCM"]
 	path = BetterNCM
 	url = https://github.com/MicroCBer/BetterNCM.git
+	branch = v2
