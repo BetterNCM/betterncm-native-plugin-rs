@@ -582,6 +582,33 @@ impl TryFrom<()> for CefV8Value {
     }
 }
 
+impl TryInto<Vec<CefV8Value>> for CefV8Value {
+    type Error = V8ValueError;
+    fn try_into(self) -> Result<Vec<CefV8Value>, Self::Error> {
+        unsafe {
+            if cef_sys::cef_currently_on(cef_sys::cef_thread_id_t_TID_RENDERER) == 0 {
+                Err(V8ValueError::NotInRendererThread)
+            } else if cef_sys::cef_v8context_in_context() == 0 {
+                Err(V8ValueError::NotInV8Context)
+            } else if !self.is_array() {
+                Err(V8ValueError::IncorrectType {
+                    required: "array",
+                    current: self.get_js_type(),
+                })
+            } else {
+                let len = self.get_array_length();
+                let mut array = Vec::with_capacity(len);
+
+                for i in 0..len {
+                    array.push(self.get_value_byindex(i as _));
+                }
+
+                Ok(array)
+            }
+        }
+    }
+}
+
 impl<T> TryFrom<CefV8Value> for Vec<T>
 where
     T: TryFrom<CefV8Value>,

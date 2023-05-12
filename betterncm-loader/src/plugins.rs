@@ -91,7 +91,7 @@ pub static LOADED_PLUGINS: Lazy<Vec<PluginManifest>> = Lazy::new(|| {
     if let Ok(plugins) = std::fs::read_dir("./plugins_dev") {
         load_from_dir(plugins);
     }
-    dbg!(result)
+    result
 });
 
 pub static HIJACKS_MAP: Lazy<HashMap<String, Vec<HijackEntry>>> = Lazy::new(|| {
@@ -160,7 +160,7 @@ pub fn init_plugins() {
         if !plugin_market_path.is_dir() {
             info!("插件商店文件夹不存在，正在重新解压覆盖");
             crate::utils::unzip_data(
-                include_bytes!("../resources/PluginMarket.plugin"),
+                include_bytes!("../../BetterNCM/resource/PluginMarket.plugin"),
                 plugin_market_path,
             );
         }
@@ -169,6 +169,9 @@ pub fn init_plugins() {
     let _ = &LOADED_PLUGINS;
     // 触发 Lazy 加载请求篡改表
     let _ = &HIJACKS_MAP;
+}
+
+pub fn load_native_plugins() {
     let ncm_version = get_ncm_version();
     let ncm_version = [
         ncm_version.major as u16,
@@ -182,7 +185,10 @@ pub fn init_plugins() {
         .iter()
         .filter(|x| !x.native_plugin.is_empty())
     {
-        let native_plugin_dll_path = native_plugin.native_plugin.to_owned();
+        let native_plugin_dll_path = PathBuf::from(native_plugin.plugin_path.to_owned())
+            .join(&native_plugin.native_plugin)
+            .to_string_lossy()
+            .to_string();
         tracing::info!("正在加载原生插件 {native_plugin_dll_path}");
         match unsafe { LoadLibraryW(&HSTRING::from(native_plugin_dll_path.to_owned())) } {
             Ok(plugin_module) => {
@@ -192,7 +198,7 @@ pub fn init_plugins() {
                     // 为了将上下文的内存所有权交由插件自身管理，此处需要泄露结构
                     // 因为初始化只调用一次，所以此处泄露不会有严重的内存泄露问题
                     let raw_ctx = Box::leak(Box::new(betterncm_plugin_api::RawPluginAPI {
-                        addNativeAPI: None,
+                        addNativeAPI: Some(crate::plugin_native_apis::add_native_api),
                         betterncmVersion: bncm_version.as_ptr(),
                         processType: match *PROCESS_TYPE {
                             crate::ProcessType::Main => betterncm_plugin_api::NCMProcessType::Main,
@@ -246,11 +252,9 @@ pub fn unzip_plugins() {
                     if let Ok(zip_file) = std::fs::File::open(plugin.path()) {
                         if let Ok(mut zip_file) = zip::ZipArchive::new(zip_file) {
                             if let Ok(manifest) = zip_file.by_name("manifest.json") {
-                                if let Ok(manifest) =
-                                    serde_json::from_reader::<_, PluginManifest>(manifest)
-                                {
+                                if serde_json::from_reader::<_, PluginManifest>(manifest).is_ok() {
                                     let unzip_dir = std::path::Path::new("./plugins_runtime")
-                                        .join(manifest.name.as_str());
+                                        .join(plugin.file_name().to_string_lossy().to_string());
                                     let _ = std::fs::remove_dir_all(&unzip_dir);
                                     unzip_file(plugin.path(), &unzip_dir);
                                     let _ = std::fs::write(

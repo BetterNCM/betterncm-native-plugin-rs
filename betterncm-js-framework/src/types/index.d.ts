@@ -69,6 +69,7 @@ declare global {
 			export function reloadIgnoreCache(): void;
 			export function restart(): void;
 			export function getNCMPath(): string;
+			export function getDataPath(): string;
 			export function showConsole(show: boolean): void;
 			export function setRoundedCorner(show: boolean): void;
 			export function readConfig(

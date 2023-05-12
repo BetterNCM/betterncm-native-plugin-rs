@@ -13,10 +13,10 @@ use windows::Win32::{
 
 pub fn get_ncm_version() -> semver::Version {
     unsafe {
-        let exe_file = dbg!(std::env::current_exe()
+        let exe_file = std::env::current_exe()
             .unwrap()
             .to_string_lossy()
-            .to_string());
+            .to_string();
         let exe_file = windows::core::HSTRING::from(exe_file);
         let mut ver_handle = 0;
         let ver_size = GetFileVersionInfoSizeW(&exe_file, Some(&mut ver_handle));
@@ -28,17 +28,17 @@ pub fn get_ncm_version() -> semver::Version {
             {
                 let mut size = 0;
                 let mut info: *mut VS_FIXEDFILEINFO = std::ptr::null_mut();
-                if dbg!(VerQueryValueW(
+                if VerQueryValueW(
                     data.as_mut_ptr() as _,
                     windows::w!("\\"),
                     &mut info as *mut _ as _,
                     &mut size,
                 )
-                .as_bool())
+                .as_bool()
                     && size != 0
                 {
                     if let Some(info) = info.as_ref() {
-                        if dbg!(info).dwSignature == 0xFEEF04BD {
+                        if info.dwSignature == 0xFEEF04BD {
                             let major_ver = (info.dwFileVersionMS >> 16) & 0xFFFF;
                             let minor_ver = info.dwFileVersionMS & 0xFFFF;
                             let build_ver = (info.dwFileVersionLS >> 16) & 0xFFFF;

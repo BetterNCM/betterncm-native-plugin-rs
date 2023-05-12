@@ -23,25 +23,25 @@ impl CefBaseRefCounted {
     }
 }
 
-pub(crate) unsafe fn cef_add_ref<T>(base_ref: *mut T) -> *mut T {
-    if !base_ref.is_null() {
-        let base_ref = base_ref as *mut cef_sys::cef_base_ref_counted_t;
-        if let Some(add_ref) = (*base_ref).add_ref {
-            (add_ref)(base_ref);
-        }
-    }
-    base_ref as *mut T
-}
+// pub(crate) unsafe fn cef_add_ref<T>(base_ref: *mut T) -> *mut T {
+//     if !base_ref.is_null() {
+//         let base_ref = base_ref as *mut cef_sys::cef_base_ref_counted_t;
+//         if let Some(add_ref) = (*base_ref).add_ref {
+//             (add_ref)(base_ref);
+//         }
+//     }
+//     base_ref as *mut T
+// }
 
-pub(crate) unsafe fn cef_release<T>(base_ref: *mut T) -> *mut T {
-    if !base_ref.is_null() {
-        let base_ref = base_ref as *mut cef_sys::cef_base_ref_counted_t;
-        if let Some(release) = (*base_ref).release {
-            (release)(base_ref);
-        }
-    }
-    base_ref as *mut T
-}
+// pub(crate) unsafe fn cef_release<T>(base_ref: *mut T) -> *mut T {
+//     if !base_ref.is_null() {
+//         let base_ref = base_ref as *mut cef_sys::cef_base_ref_counted_t;
+//         if let Some(release) = (*base_ref).release {
+//             (release)(base_ref);
+//         }
+//     }
+//     base_ref as *mut T
+// }
 
 pub fn create_once_ref<T>() -> cef_sys::cef_base_ref_counted_t {
     cef_sys::cef_base_ref_counted_t {
