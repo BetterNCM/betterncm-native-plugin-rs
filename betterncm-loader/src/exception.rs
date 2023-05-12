@@ -89,7 +89,7 @@ pub fn exec(cmd: &str, elevate: bool, show_window: bool) {
                     param += " ";
                     param += &arg.to_string().unwrap();
                 }
-                info.lpParameters = PCWSTR(cmd.as_ptr());
+                info.lpParameters = PCWSTR(HSTRING::from(param).as_ptr());
             }
 
             info.nShow = if show_window { SW_SHOW } else { SW_HIDE }.0 as _;

@@ -5,6 +5,7 @@ mod app;
 mod audio;
 mod fs;
 mod internal;
+mod native_plugin;
 mod util;
 
 fn init_native_api(ctx: &NativeAPIInitContext) {
@@ -13,12 +14,14 @@ fn init_native_api(ctx: &NativeAPIInitContext) {
     ctx.define_api(audio::get_fft_data);
     ctx.define_api(audio::acquire_fft_data);
     ctx.define_api(audio::release_fft_data);
+    ctx.define_api(app::crash);
     ctx.define_api(app::restart);
     ctx.define_api(app::read_config);
     ctx.define_api(app::write_config);
     ctx.define_api(app::reload_ignore_cache);
     ctx.define_api(app::version);
     ctx.define_api(app::get_ncm_path);
+    ctx.define_api(app::get_data_path);
     ctx.define_api(app::show_console);
     ctx.define_api(app::exec);
     ctx.define_api(app::restart_plugins);
@@ -33,6 +36,11 @@ fn init_native_api(ctx: &NativeAPIInitContext) {
     ctx.define_api(fs::remove);
     ctx.define_api(fs::mkdir);
     ctx.define_api(fs::watch_directory);
+    ctx.define_api(fs::get_properties);
+    ctx.define_api(fs::read_dir_with_details);
+    ctx.define_api(fs::get_disks);
+    ctx.define_api(native_plugin::get_registered_apis);
+    ctx.define_api(native_plugin::call_native_api);
 }
 
 pub(super) fn threaded_promise<T, F>(
@@ -44,7 +52,6 @@ pub(super) fn threaded_promise<T, F>(
     T: TryInto<CefV8Value> + Send + 'static,
     F: FnOnce() -> anyhow::Result<T> + Send + 'static,
     T::Error: std::fmt::Debug,
-    V8ValueError: From<T::Error>,
 {
     let ctx = CefV8Context::current();
     rayon::spawn(move || match callback() {
@@ -82,7 +89,6 @@ where
     T: TryInto<CefV8Value> + Send + 'static,
     F: FnOnce() -> anyhow::Result<T> + Send + 'static,
     T::Error: std::fmt::Debug + std::error::Error + Send + Sync,
-    V8ValueError: From<T::Error>,
 {
     if let Some(resolve) = resolve {
         if let Some(reject) = reject {

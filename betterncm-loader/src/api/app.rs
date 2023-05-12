@@ -30,6 +30,12 @@ pub fn restart_plugins() {
     crate::exception::restart_self();
 }
 
+#[betterncm_native_api(name = "app.crash")]
+#[instrument]
+pub fn crash() {
+    panic!("此崩溃为人为调用了 app.crash 函数，这可能不是一个 BUG！")
+}
+
 #[betterncm_native_api(name = "app.reloadIgnoreCache")]
 #[instrument]
 pub fn reload_ignore_cache() {
@@ -107,6 +113,16 @@ pub fn get_ncm_path() -> anyhow::Result<String> {
     Ok(exe)
 }
 
+#[betterncm_native_api(name = "app.getDataPath")]
+#[instrument]
+pub fn get_data_path() -> anyhow::Result<String> {
+    let exe = std::env::current_dir()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    Ok(exe)
+}
+
 #[betterncm_native_api(name = "app.showConsole")]
 #[instrument]
 pub fn show_console(show: bool) {
@@ -118,6 +134,7 @@ pub fn show_console(show: bool) {
 #[betterncm_native_api(name = "app.exec")]
 #[instrument]
 pub fn exec(cmd: String, elevate: bool, show_window: bool) {
+    tracing::info!("正在运行程序 {cmd} 是否提权 {elevate} 是否显示窗口 {show_window}");
     crate::exception::exec(&cmd, elevate, show_window);
 }
 

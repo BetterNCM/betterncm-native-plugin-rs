@@ -170,7 +170,7 @@ mod dsound_hook {
         ) -> ::windows::core::HRESULT =
             std::mem::transmute(data.create_sound_buffer_hook.as_ref().unwrap().trampoline());
 
-        let result = orig_func(this, dbg!(pcdsbufferdesc), ppdsbuffer, punkouter);
+        let result = orig_func(this, pcdsbufferdesc, ppdsbuffer, punkouter);
 
         if result.is_ok() {
             info!("创建了音频缓冲区");
@@ -854,15 +854,15 @@ mod hook {
             }
         }
 
-        let _ = dbg!(DwmSetWindowAttribute(
+        let _ = DwmSetWindowAttribute(
             parent_hwnd,
             DWMWA_WINDOW_CORNER_PREFERENCE,
             &DWMWCP_ROUND as *const _ as _,
             std::mem::size_of_val(&DWMWCP_ROUND) as _,
-        ));
+        );
         SetWindowLongW(parent_hwnd, GWL_EXSTYLE, WS_EX_COMPOSITED.0 as _);
         SetLayeredWindowAttributes(parent_hwnd, None, 0, LWA_ALPHA);
-        let _ = dbg!(window_shadows::set_shadow(Handle(parent_hwnd), true));
+        let _ = window_shadows::set_shadow(Handle(parent_hwnd), true);
 
         settings.background_color = 0x00000000;
 
@@ -1001,12 +1001,12 @@ mod hook {
                 framework_js
             ));
             let framework_js_url = cef::CefString::from("betterncm://betterncm/framework.js");
-            dbg!(frame.execute_java_script.unwrap()(
+            frame.execute_java_script.unwrap()(
                 frame,
                 framework_js.to_raw(),
                 framework_js_url.to_raw(),
                 0,
-            ));
+            );
 
             for plugin in crate::plugins::LOADED_PLUGINS.iter() {
                 if !plugin.startup_script.is_empty() {
@@ -1015,12 +1015,12 @@ mod hook {
                         "betterncm://betterncm/plugins/{}/startup_script.js",
                         urlencoding::encode(&plugin.name)
                     ));
-                    dbg!(frame.execute_java_script.unwrap()(
+                    frame.execute_java_script.unwrap()(
                         frame,
                         startup_script.to_raw(),
                         startup_script_url.to_raw(),
                         0,
-                    ));
+                    );
                     info!(
                         "已执行来自 {} 的启动脚本文件 startup_script.js",
                         plugin.name

@@ -59,9 +59,7 @@ export namespace app {
 	 * @returns 数据目录路径
 	 */
 	export async function getDataPath() {
-		const r = await betterncmFetch("/app/datapath");
-		const p = await r.text();
-		return p.replace(/\//g, "\\");
+		return betterncm_native.app.getDataPath().replace(/\//g, "\\");
 	}
 
 	/**

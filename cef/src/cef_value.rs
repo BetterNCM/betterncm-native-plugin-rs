@@ -60,7 +60,7 @@ impl CefValue {
         unsafe { ((*self.0).get_bool.unwrap())(self.0) != 0 }
     }
     pub fn get_int(&self) -> ::core::ffi::c_int {
-        unsafe { dbg!(((*self.0).get_int.unwrap())(self.0)) }
+        unsafe { ((*self.0).get_int.unwrap())(self.0) }
     }
     pub fn get_double(&self) -> ::core::ffi::c_double {
         unsafe { ((*self.0).get_double.unwrap())(self.0) }

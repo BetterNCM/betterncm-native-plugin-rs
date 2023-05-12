@@ -3,6 +3,7 @@ mod audio;
 mod cef_hooks;
 mod exception;
 mod http_api;
+mod plugin_native_apis;
 mod plugins;
 mod proxy_functions;
 mod scheme_hijack;
@@ -202,6 +203,9 @@ fn initialize(dll_module: HINSTANCE) -> anyhow::Result<()> {
         audio::init_audio_capture();
         http_api::init_http_server()?;
     }
+
+    info!("正在加载原生插件");
+    plugins::load_native_plugins();
 
     if *PROCESS_TYPE == ProcessType::Renderer {
         #[cfg(debug_assertions)]
