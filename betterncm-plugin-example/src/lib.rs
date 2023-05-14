@@ -22,7 +22,8 @@ fn test_func(arg0: usize, arg1: CefV8Value) {
 }
 
 #[betterncm_main]
-fn betterncm_plugin_main(ctx: PluginContext) {
+fn betterncm_plugin_main(mut ctx: PluginContext) {
+    ctx.set_namespace("betterncm_plugin_main");
     ctx.add_native_api(test_func);
 
     println!("BetterNCM Rust Plugin loaded!");
