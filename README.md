@@ -1,32 +1,31 @@
-> 这玩意估计不会和上游合并了
-> 
-> 反正也是自己用着玩（大雾）
+# BetterNCM Native Plugin Rust
 
-# My Rust Better Neko Cat Music (MRBNCM)
+BetterNCM 原生插件 API 的 Rust 绑定库。
 
-使用纯 Rust 编写的更好的猫猫音乐扩展喵（雾）
+## 简单用法
 
-## 编译
+```rust
+#![crate_type = "cdylib"] // 要导出成 DLL 链接库，或者在 Cargo.toml 中设置。
 
-准备好 NodeJS 和 Rust 工具套件。
+use betterncm_macro::{betterncm_main, betterncm_native_call}; // 用于注册函数的两个宏
+use betterncm_plugin_api::*; // BetterNCM Native Plugin API
+use cef::CefV8Value; // 做了一些 CEF 的包装，如果需要更多操作请使用 cef-sys 库
 
-构建 JS 框架~~构建猫粮~~：
-```bash
-yarn
-yarn build:dev
-yarn build
+#[betterncm_native_call] // 使用此过程宏来轻松定义需要注册的函数，且帮你处理一定程度的类型转换。
+fn test_func(arg0: usize, arg1: CefV8Value) {
+    println!("BetterNCM ❤ Rust!");
+    println!("{} {:?}", arg0, arg1);
+}
+
+// 插件加载的入口点，我们在这里注册原生函数
+#[betterncm_main]
+fn betterncm_plugin_main(mut ctx: PluginContext) {
+    ctx.set_namespace("betterncm_plugin_main");
+    ctx.add_native_api(test_func);
+
+    println!("BetterNCM Rust Plugin loaded!");
+}
+
 ```
 
-构建本体~~构建猫猫~~：
-
-```bash
-cargo build -p betterncm-loader
-cargo run -p betterncm-loader --example debug # 直接把猫猫放在大房子里跑哦
-```
-
-发行构建~~让猫猫变得更小~~：
-
-```bash
-cargo +nightly build --release -Z build-std=core,alloc,std,panic_abort -Z build-std-features=panic_immediate_abort --target i686-pc-windows-msvc -p betterncm-loader
-cargo +nightly run --release -Z build-std=core,alloc,std,panic_abort -Z build-std-features=panic_immediate_abort --target i686-pc-windows-msvc -p betterncm-loader --example debug # 直接把猫猫放在大房子里跑哦
-```
+详情请参阅本仓库下的 [betterncm-plugin-example](./betterncm-plugin-example) 文件夹。
