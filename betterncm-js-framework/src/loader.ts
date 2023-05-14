@@ -9,6 +9,21 @@ const SAFE_MODE_KEY = "betterncm.safemode";
 const LOAD_ERROR_KEY = "betterncm.loaderror";
 const CPP_SIDE_INJECT_DISABLE_KEY =
 	"cc.microblock.betterncm.cpp_side_inject_feature_disabled";
+	
+const origChannelCall = channel.call;
+
+channel.call = function(cmd, callback, args, ...otherArgs) {
+	if (cmd === "winhelper.showWindow") {
+		console.log(cmd, ...args);
+		betterncmFetch(`/api/internal/set_main_window_hidden?hidden=${args[0] === "hide"}`)
+		// try {
+		// 	betterncm_native.internal.setMainWindowHidden(args[0] === "hidden");
+		// } catch (err) {
+		// 	console.warn(err);
+		// }
+	}
+	return origChannelCall(cmd, callback, args, ...otherArgs);
+}
 
 export namespace splashScreen {
 	export function hideSplashScreen() {

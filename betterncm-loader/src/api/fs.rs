@@ -322,8 +322,7 @@ pub fn get_disks() -> anyhow::Result<CefV8Value> {
             let err = std::io::Error::last_os_error();
             anyhow::bail!("查询磁盘出错：{err:?}");
         }
-        let mut letter_index = 0;
-        while drives != 0 {
+        for letter_index in 0..26 {
             let letter = char::from_u32('A' as u32 + letter_index).unwrap_or_default();
             let disk_letter = HSTRING::from(format!("{letter}:\\"));
 
@@ -347,7 +346,7 @@ pub fn get_disks() -> anyhow::Result<CefV8Value> {
                     .as_bool()
                 {
                     let disk_name = std::string::String::from_utf16_lossy(&disk_name);
-                    disk_info.set_value_bykey("name", disk_name.try_into()?);
+                    disk_info.set_value_bykey("name", disk_name.trim_end_matches('\0').try_into()?);
                 } else {
                     disk_info.set_value_bykey("name", "".try_into()?);
                 }
@@ -358,7 +357,6 @@ pub fn get_disks() -> anyhow::Result<CefV8Value> {
                 result.set_value_byindex(result.get_array_length() as _, disk_info);
             }
 
-            letter_index += 1;
             drives >>= 1;
         }
     }
