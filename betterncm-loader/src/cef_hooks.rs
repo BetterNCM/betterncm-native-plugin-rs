@@ -384,7 +384,7 @@ mod dsound_hook {
     }
 }
 
-mod hook {
+pub mod hook {
     use std::{collections::HashMap, ffi::*, io::Write};
 
     use cef_sys::*;
@@ -402,12 +402,12 @@ mod hook {
     };
 
     #[derive(Default)]
-    struct CEFHookData {
-        client: Option<*mut _cef_client_t>,
-        origin_cef_load_handler: Option<
+    pub struct CEFHookData {
+        pub client: Option<*mut _cef_client_t>,
+        pub origin_cef_load_handler: Option<
             unsafe extern "stdcall" fn(self_: *mut _cef_client_t) -> *mut _cef_load_handler_t,
         >,
-        origin_cef_on_load_start: Option<
+        pub origin_cef_on_load_start: Option<
             unsafe extern "stdcall" fn(
                 self_: *mut _cef_load_handler_t,
                 browser: *mut _cef_browser_t,
@@ -415,10 +415,10 @@ mod hook {
                 transition_type: cef_transition_type_t,
             ),
         >,
-        origin_cef_get_keyboard_handler: Option<
+        pub origin_cef_get_keyboard_handler: Option<
             unsafe extern "stdcall" fn(self_: *mut _cef_client_t) -> *mut _cef_keyboard_handler_t,
         >,
-        origin_cef_on_key_event: Option<
+        pub origin_cef_on_key_event: Option<
             unsafe extern "stdcall" fn(
                 self_: *mut _cef_keyboard_handler_t,
                 browser: *mut _cef_browser_t,
@@ -426,7 +426,7 @@ mod hook {
                 os_event: *mut MSG,
             ) -> c_int,
         >,
-        origin_cef_scheme_handler_create: Option<
+        pub origin_cef_scheme_handler_create: Option<
             unsafe extern "stdcall" fn(
                 self_: *mut _cef_scheme_handler_factory_t,
                 browser: *mut _cef_browser_t,
@@ -435,7 +435,7 @@ mod hook {
                 request: *mut _cef_request_t,
             ) -> *mut _cef_resource_handler_t,
         >,
-        origin_read_response: Option<
+        pub origin_read_response: Option<
             unsafe extern "stdcall" fn(
                 self_: *mut _cef_resource_handler_t,
                 data_out: *mut c_void,
@@ -444,29 +444,31 @@ mod hook {
                 callback: *mut _cef_callback_t,
             ) -> c_int,
         >,
-        orig_on_before_command_line_processing: Option<
+        pub orig_on_before_command_line_processing: Option<
             unsafe extern "stdcall" fn(
                 self_: *mut _cef_app_t,
                 process_type: *const cef_string_t,
                 command_line: *mut _cef_command_line_t,
             ),
         >,
-        orig_append_switch: Option<
+        pub orig_append_switch: Option<
             unsafe extern "stdcall" fn(self_: *mut _cef_command_line_t, name: *const cef_string_t),
         >,
-        orig_append_switch_with_value: Option<
+        pub orig_append_switch_with_value: Option<
             unsafe extern "stdcall" fn(
                 self_: *mut _cef_command_line_t,
                 name: *const cef_string_t,
                 value: *const cef_string_t,
             ),
         >,
-        browser_window: Option<windows::Win32::Foundation::HWND>,
+        pub browser_window: Option<windows::Win32::Foundation::HWND>,
+        pub browser: Option<*mut cef_sys::cef_browser_t>,
+        pub browser_host: Option<*mut cef_sys::cef_browser_host_t>,
     }
 
-    static mut CEF_HOOK_DATA: Lazy<CEFHookData> = Lazy::new(Default::default);
+    pub static mut CEF_HOOK_DATA: Lazy<CEFHookData> = Lazy::new(Default::default);
 
-    pub(self) fn get_cef_hook_data() -> &'static mut Lazy<CEFHookData> {
+    pub fn get_cef_hook_data() -> &'static mut Lazy<CEFHookData> {
         unsafe { &mut CEF_HOOK_DATA }
     }
 
@@ -874,6 +876,9 @@ mod hook {
             extra_info,
             request_context,
         );
+
+        hook_data.browser = Some(result);
+        hook_data.browser_host = Some((result.as_mut().unwrap().get_host.unwrap())(result));
 
         hook_data.browser_window = Some(std::mem::transmute(window_info.window));
 

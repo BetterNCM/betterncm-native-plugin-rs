@@ -3,6 +3,7 @@ use std::{
     path::Path,
 };
 
+use anyhow::Context;
 use windows::Win32::{
     Foundation::CloseHandle,
     Storage::FileSystem::{
@@ -10,6 +11,26 @@ use windows::Win32::{
     },
     System::{Diagnostics::ToolHelp::*, Threading::GetCurrentProcessId},
 };
+
+#[tracing::instrument]
+pub fn set_main_window_hidden(hidden: bool) -> anyhow::Result<()> {
+    tracing::debug!("");
+    unsafe {
+        let hook_data = crate::cef_hooks::hook::get_cef_hook_data();
+        // tracing::debug!("{:#?}", hook_data);
+        let host = hook_data
+            .browser_host
+            .context("捕获 _cef_browser_host_t 失败")?
+            .as_mut()
+            .context("获取 _cef_browser_host_t 失败")?;
+        tracing::debug!("host");
+        let was_hidden = host.was_hidden.context("获取 was_hidden 函数失败")?;
+        tracing::debug!("was_hidden");
+        (was_hidden)(host, hidden as _);
+    }
+    tracing::debug!("Finished");
+    Ok(())
+}
 
 pub fn get_ncm_version() -> semver::Version {
     unsafe {

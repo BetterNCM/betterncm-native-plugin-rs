@@ -46,6 +46,21 @@ async fn test_url(name: web::Path<String>) -> impl Responder {
     format!("test {}", name)
 }
 
+#[derive(Debug, Deserialize)]
+struct SetMainWindowHiddenQuery {
+    hidden: bool,
+}
+
+#[get("/internal/set_main_window_hidden")]
+async fn set_main_window_hidden(query: web::Query<SetMainWindowHiddenQuery>) -> impl Responder {
+    if let Err(err) = crate::utils::set_main_window_hidden(query.hidden) {
+        warn!("设置主窗口隐藏时发生错误 {}", err);
+    } else {
+        info!("设置主窗口隐藏成功 {}", query.hidden);
+    }
+    HttpResponse::Ok()
+}
+
 pub static HTTP_SERVER_API_KEY: Lazy<String> = Lazy::new(|| {
     rand::Rng::sample_iter(rand::thread_rng(), &rand::distributions::Alphanumeric)
         .take(32)
@@ -126,7 +141,12 @@ async fn async_http_server_main() -> anyhow::Result<()> {
             App::new()
                 .app_data(PayloadConfig::new(usize::MAX))
                 .wrap(APIKeyCheck)
-                .service(web::scope("/api").service(write_file).service(read_file))
+                .service(
+                    web::scope("/api")
+                        .service(write_file)
+                        .service(read_file)
+                        .service(set_main_window_hidden),
+                )
         })
         .bind_rustls(("localhost", port), ssl_builder)?
         .run()
