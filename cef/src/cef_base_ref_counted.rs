@@ -46,27 +46,51 @@ impl CefBaseRefCounted {
 pub fn create_once_ref<T>() -> cef_sys::cef_base_ref_counted_t {
     cef_sys::cef_base_ref_counted_t {
         size: ::core::mem::size_of::<T>() as _,
-        add_ref: Some(add_ref),
-        release: Some(release),
-        has_one_ref: Some(has_one_ref),
-        has_at_least_one_ref: Some(has_at_least_one_ref),
+        add_ref: Some(callbacks::add_ref),
+        release: Some(callbacks::release),
+        has_one_ref: Some(callbacks::has_one_ref),
+        has_at_least_one_ref: Some(callbacks::has_at_least_one_ref),
     }
 }
 
-extern "stdcall" fn add_ref(_: *mut cef_sys::cef_base_ref_counted_t) {}
+#[cfg(target_arch = "x86")]
+mod callbacks {
+    pub extern "stdcall" fn add_ref(_: *mut cef_sys::cef_base_ref_counted_t) {}
 
-extern "stdcall" fn release(_: *mut cef_sys::cef_base_ref_counted_t) -> ::core::ffi::c_int {
-    1
+    pub extern "stdcall" fn release(_: *mut cef_sys::cef_base_ref_counted_t) -> ::core::ffi::c_int {
+        1
+    }
+
+    pub extern "stdcall" fn has_one_ref(
+        _: *mut cef_sys::cef_base_ref_counted_t,
+    ) -> ::core::ffi::c_int {
+        1
+    }
+
+    pub extern "stdcall" fn has_at_least_one_ref(
+        _: *mut cef_sys::cef_base_ref_counted_t,
+    ) -> ::core::ffi::c_int {
+        1
+    }
 }
 
-extern "stdcall" fn has_one_ref(_: *mut cef_sys::cef_base_ref_counted_t) -> ::core::ffi::c_int {
-    1
-}
+#[cfg(target_arch = "x86_64")]
+mod callbacks {
+    pub extern "C" fn add_ref(_: *mut cef_sys::cef_base_ref_counted_t) {}
 
-extern "stdcall" fn has_at_least_one_ref(
-    _: *mut cef_sys::cef_base_ref_counted_t,
-) -> ::core::ffi::c_int {
-    1
+    pub extern "C" fn release(_: *mut cef_sys::cef_base_ref_counted_t) -> ::core::ffi::c_int {
+        1
+    }
+
+    pub extern "C" fn has_one_ref(_: *mut cef_sys::cef_base_ref_counted_t) -> ::core::ffi::c_int {
+        1
+    }
+
+    pub extern "C" fn has_at_least_one_ref(
+        _: *mut cef_sys::cef_base_ref_counted_t,
+    ) -> ::core::ffi::c_int {
+        1
+    }
 }
 
 impl Drop for CefBaseRefCounted {

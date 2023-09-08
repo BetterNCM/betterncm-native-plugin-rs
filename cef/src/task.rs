@@ -5,6 +5,17 @@ pub fn renderer_post_task<F: FnOnce() + Send + 'static>(func: F) {
             base_task: cef_sys::cef_task_t,
             func: Box<dyn FnOnce() + Send + 'static>,
         }
+
+        #[cfg(target_arch = "x86_64")]
+        extern "C" fn on_exec(task: *mut cef_sys::cef_task_t) {
+            unsafe {
+                let task = Box::from_raw(task as *mut ExecFunctionTask);
+
+                (task.func)();
+            }
+        }
+
+        #[cfg(target_arch = "x86")]
         extern "stdcall" fn on_exec(task: *mut cef_sys::cef_task_t) {
             unsafe {
                 let task = Box::from_raw(task as *mut ExecFunctionTask);
@@ -12,6 +23,7 @@ pub fn renderer_post_task<F: FnOnce() + Send + 'static>(func: F) {
                 (task.func)();
             }
         }
+
         let task = Box::leak(Box::new(ExecFunctionTask {
             base_task: cef_sys::cef_task_t {
                 base: cef_sys::_cef_base_ref_counted_t {
@@ -42,6 +54,19 @@ pub fn renderer_post_task_in_v8_ctx<F: FnOnce() + Send + 'static>(
             func: Box<dyn FnOnce() + Send + 'static>,
             ctx: *mut cef_sys::cef_v8context_t,
         }
+
+        #[cfg(target_arch = "x86_64")]
+        extern "C" fn on_exec(task: *mut cef_sys::cef_task_t) {
+            unsafe {
+                let task = Box::from_raw(task as *mut ExecFunctionTask);
+                let ctx = task.ctx.as_mut().unwrap();
+                ctx.enter.unwrap()(ctx);
+                (task.func)();
+                ctx.exit.unwrap()(ctx);
+            }
+        }
+
+        #[cfg(target_arch = "x86")]
         extern "stdcall" fn on_exec(task: *mut cef_sys::cef_task_t) {
             unsafe {
                 let task = Box::from_raw(task as *mut ExecFunctionTask);
@@ -51,6 +76,7 @@ pub fn renderer_post_task_in_v8_ctx<F: FnOnce() + Send + 'static>(
                 ctx.exit.unwrap()(ctx);
             }
         }
+
         let task = Box::leak(Box::new(ExecFunctionTask {
             base_task: cef_sys::cef_task_t {
                 base: cef_sys::_cef_base_ref_counted_t {

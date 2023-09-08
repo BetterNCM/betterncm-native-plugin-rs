@@ -29,3 +29,12 @@ fn betterncm_plugin_main(mut ctx: PluginContext) {
 ```
 
 详情请参阅本仓库下的 [betterncm-plugin-example](./betterncm-plugin-example) 文件夹。
+
+## 编译须知
+
+目前已经过测试可以构建目标为 `i686-pc-windows-msvc` 和 `x86_64-pc-windows-msvc` 的插件，其他目标环境并未适配支持，构建时请手动提供 `--target` 参数固定构建目标。
+
+如果不清楚如何选择：
+
+- 如果你的插件是提供给 NCM 2.10.X / 3.0+ (32 位版本) 软件的，请选择 `i686-pc-windows-msvc`
+- 如果你的插件是提供给 NCM 3.0+ (64 位版本) 软件的，请选择 `x86_64-pc-windows-msvc`
